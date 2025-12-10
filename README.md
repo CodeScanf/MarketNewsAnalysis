@@ -59,6 +59,7 @@ An AI-powered multi-agent system for processing financial news using LangGraph. 
 ### Prerequisites
 
 - Python 3.9+
+- Node.js 18+ (for frontend)
 - pip or conda
 - Anthropic API key (for Claude LLM features)
 
@@ -102,12 +103,136 @@ pytest tests/ -v
 python -c "from intanalysis import IntelligenceSystem; print('✅ Installation successful!')"
 ```
 
-## 📖 Usage Examples
+---
 
-### Interactive Demo (Recommended for First-Time Users)
+## 📰 Generating the Dataset
+
+The system includes RSS feed scrapers to collect real financial news articles.
+
+### One-Time Fetch
 
 ```bash
-python interactive_demo.py
+# Run the article fetcher (fetches from 10+ Indian financial news sources)
+python dataset/articals.py
+```
+
+### Continuous Monitoring
+
+```bash
+# Start RSS feed monitor (checks every 5 minutes for new articles)
+python dataset/feeds.py
+```
+
+This will:
+- ✅ Fetch articles from 10+ Indian financial news RSS feeds
+- ✅ Filter articles from the last 30 days
+- ✅ Deduplicate and save to `dataset/rss_feeds_all.json`
+- ✅ Track seen articles in `dataset/seen_articles.json`
+
+### RSS Feed Sources
+
+| Source | Feed |
+|--------|------|
+| Economic Times | Top Stories |
+| Business Standard | Top Stories |
+| Moneycontrol | Latest News |
+| LiveMint | Companies |
+| The Hindu Business | Business |
+| NDTV Business | Latest |
+| Indian Express | Business |
+| Financial Express | Markets |
+| Trade Brains | Latest |
+
+### Custom Keywords Filter
+
+```python
+from dataset.feeds import NewsRSSMonitor
+
+monitor = NewsRSSMonitor(check_interval=300)  # 5 minutes
+
+# Filter for specific keywords
+monitor.monitor_continuous(
+    keywords=["HDFC", "RBI", "banking", "Sensex", "Nifty"],
+    save_to_file=True
+)
+```
+
+## 📖 Usage Examples
+
+### 🖥️ Full Stack Demo (Recommended)
+
+The easiest way to experience the system is with the **FastAPI backend + React frontend**:
+
+#### Terminal 1: Start the Backend API
+
+```bash
+# Activate virtual environment
+source .venv/bin/activate
+
+# Start FastAPI server with uvicorn
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+You should see:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process
+✅ Intelligence System initialized
+```
+
+#### Terminal 2: Start the Frontend UI
+
+```bash
+# Navigate to frontend directory
+cd frontend
+
+# Install dependencies (first time only)
+npm install
+
+# Start development server
+npm run dev
+```
+
+You should see:
+```
+VITE v5.0.8  ready in 300 ms
+
+➜  Local:   http://localhost:5173/
+➜  Network: http://192.168.x.x:5173/
+```
+
+#### Open the Web UI
+
+Navigate to **http://localhost:5173** in your browser.
+
+<!-- Add your screenshot: docs/images/web-ui.png -->
+
+**Features available in the UI:**
+
+| Tab | Description |
+|-----|-------------|
+| 🔍 **Query** | Search financial news with natural language queries |
+| 📥 **Ingest** | Paste JSON articles or load from RSS feeds |
+| 🎮 **Demo** | One-click demo with sample articles |
+| 📊 **Stats** | View system statistics (indexed stories, etc.) |
+
+#### Example Workflow
+
+1. **Load Data**: Click "Load from RSS" or paste articles in JSON format
+2. **Ingest**: Click "Ingest Articles" to process them
+3. **Query**: Type queries like:
+   - `"HDFC Bank news"`
+   - `"RBI policy changes"`
+   - `"Banking sector update"`
+   - `"What's happening with Infosys?"`
+4. **View Results**: See AI-generated summaries with entity highlights
+
+---
+
+### 🐍 Interactive Demo (CLI)
+
+```bash
+python run.py
 ```
 
 The interactive demo provides:
@@ -116,7 +241,9 @@ The interactive demo provides:
 - ✅ Query interface with AI-powered answers
 - ✅ Persistence across sessions
 
-### Python API
+---
+
+### 📚 Python API
 
 #### Basic Usage
 
@@ -192,35 +319,94 @@ for story in response.stories:
         print(f"  Reasoning: {impact.reasoning}")
 ```
 
-### FastAPI REST API
+### 🌐 FastAPI REST API
 
 ```bash
 # Start the API server
 uvicorn api.main:app --reload --port 8000
+
+# With auto-reload for development
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+#### Interactive API Documentation
+
+Once the server is running, access:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
 
 #### API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/ingest` | POST | Ingest articles |
-| `/query` | GET | Query the system |
+| `/ingest` | POST | Ingest articles into the system |
+| `/query` | POST | Query the system with natural language |
 | `/stats` | GET | Get system statistics |
 | `/health` | GET | Health check |
+| `/stories` | GET | List all indexed stories |
+| `/chat/history` | GET | Get chat history |
+| `/chat/clear` | POST | Clear chat history |
 
 #### Example API Calls
 
 ```bash
+# Health check
+curl http://localhost:8000/health
+
+# Get system stats
+curl http://localhost:8000/stats
+
 # Ingest articles
 curl -X POST "http://localhost:8000/ingest" \
   -H "Content-Type: application/json" \
-  -d '[{"title": "HDFC Bank news", "content": "..."}]'
+  -d '{
+    "articles": [
+      {
+        "title": "HDFC Bank announces 15% dividend",
+        "content": "HDFC Bank Limited declared a 15% dividend for shareholders...",
+        "source": "Economic Times",
+        "url": "https://example.com/hdfc-news"
+      }
+    ]
+  }'
 
-# Query
-curl "http://localhost:8000/query?q=HDFC%20Bank%20news"
+# Query the system
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "HDFC Bank news"}'
 ```
 
-### React Frontend
+#### Python Requests Example
+
+```python
+import requests
+
+BASE_URL = "http://localhost:8000"
+
+# Ingest articles
+articles = {
+    "articles": [
+        {
+            "title": "RBI raises repo rate by 25bps",
+            "content": "The Reserve Bank of India announced a rate hike...",
+            "source": "Business Standard"
+        }
+    ]
+}
+response = requests.post(f"{BASE_URL}/ingest", json=articles)
+print(response.json())
+
+# Query
+query = {"query": "RBI interest rate"}
+response = requests.post(f"{BASE_URL}/query", json=query)
+result = response.json()
+print(f"Found {len(result['stories'])} stories")
+print(f"AI Summary: {result['explanation']}")
+```
+
+---
+
+### ⚛️ React Frontend
 
 ```bash
 cd frontend
@@ -228,9 +414,13 @@ npm install
 npm run dev
 ```
 
-Access the web interface at `http://localhost:5173`
+Access the web interface at **http://localhost:5173**
 
-### Command Line Interface
+**Note:** The backend API must be running on port 8000 for the frontend to work.
+
+---
+
+### 💻 Command Line Interface
 
 ```bash
 # Ingest from file
@@ -239,6 +429,18 @@ intanalysis ingest --file articles.json
 # Query from CLI
 intanalysis query "Banking sector news"
 ```
+
+---
+
+## 🏃 Quick Run Commands
+
+| What | Command |
+|------|---------|
+| **Full Stack** | `uvicorn api.main:app --reload` + `cd frontend && npm run dev` |
+| **Backend Only** | `uvicorn api.main:app --reload --port 8000` |
+| **CLI Demo** | `python run.py` |
+| **Generate Data** | `python dataset/feeds.py` |
+| **Run Tests** | `pytest tests/ -v` |
 
 ## 🗂️ Project Structure
 
@@ -256,15 +458,22 @@ MarketNewsAnalysis/
 │   ├── workflow.py          # LangGraph workflow definitions
 │   └── cli.py               # Command line interface
 ├── api/                     # FastAPI REST API
-│   └── main.py
+│   └── main.py              # API endpoints
 ├── frontend/                # React web interface
+│   ├── package.json         # Node.js dependencies
+│   ├── vite.config.js       # Vite configuration
 │   └── src/
-├── dataset/                 # Data and persistence
-│   ├── rss_feeds_all.json   # Sample articles
+│       ├── App.jsx          # Main React component
+│       ├── api.js           # API client
+│       └── index.css        # Styles
+├── dataset/                 # Data generation & persistence
+│   ├── articals.py          # One-time RSS fetcher
+│   ├── feeds.py             # Continuous RSS monitor
+│   ├── rss_feeds_all.json   # Collected articles
 │   ├── seen_articles.json   # Processed article cache
 │   ├── vector_store.pkl     # FAISS index
 │   └── stories.pkl          # Story metadata
-├── tests/                   # Test suite
+├── tests/                   # Test suite (149 tests)
 │   ├── conftest.py          # Fixtures
 │   ├── test_models.py       # Model tests
 │   ├── test_agents.py       # Agent tests
@@ -273,8 +482,10 @@ MarketNewsAnalysis/
 │   └── ...
 ├── docs/                    # Documentation
 │   ├── ARCHITECTURE.md      # System architecture
+│   ├── BENCHMARKS.md        # Performance metrics
 │   ├── API_SETUP.md         # API documentation
 │   └── QUICKSTART.md        # Quick start guide
+├── run.py                   # Interactive CLI demo
 ├── pyproject.toml           # Package configuration
 └── README.md                # This file
 ```
@@ -303,11 +514,13 @@ system.persistence.clear_cache()
 
 ## 🧪 Testing
 
+The project includes a comprehensive test suite with **149 tests**.
+
 ```bash
 # Run all tests
 pytest tests/ -v
 
-# Run with coverage
+# Run with coverage report
 pytest tests/ --cov=intanalysis --cov-report=html
 
 # Run specific test file
@@ -315,7 +528,22 @@ pytest tests/test_agents.py -v
 
 # Run integration tests only
 pytest tests/test_integration.py -v
+
+# Run with markers
+pytest tests/ -v -m "not slow"
 ```
+
+### Test Coverage
+
+| Module | Tests | Coverage |
+|--------|-------|----------|
+| `models.py` | 28 | Data models, validation |
+| `agents.py` | 24 | All 6 agents |
+| `embeddings.py` | 16 | Vector store, reranker |
+| `mappings.py` | 18 | Stock/sector mappings |
+| `persistence.py` | 15 | Save/load operations |
+| `workflow.py` | 21 | LangGraph flow |
+| `integration` | 27 | End-to-end tests |
 
 ## 📊 Performance Benchmarks
 
