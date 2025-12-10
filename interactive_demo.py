@@ -180,7 +180,7 @@ def main():
     print_header()
     
     # Default dataset path
-    dataset_path = Path(__file__).parent.parent / "feed_dataset" / "rss_feeds_all.json"
+    dataset_path = Path(__file__).parent / "dataset" / "rss_feeds_all.json"
     
     # Allow custom path from command line
     if len(sys.argv) > 1:

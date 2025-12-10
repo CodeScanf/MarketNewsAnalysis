@@ -46,7 +46,7 @@ class LLMService:
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY or CLAUDE_API_KEY required")
         self.client = Anthropic(api_key=self.api_key)
-        self.model = "claude-sonnet-4-20250514"
+        self.model = "claude-3-haiku-20240307"
     
     @classmethod
     def get_instance(cls) -> "LLMService":
