@@ -113,7 +113,7 @@ def interactive_loop(system: IntelligenceSystem):
     print("\n" + "─"*60)
     print("💬 INTERACTIVE QUERY MODE")
     print("   Type your query and press Enter")
-    print("   Commands: 'stats', 'verbose on/off', 'help', 'quit'")
+    print("   Commands: 'stats', 'verbose on/off', 'clear cache', 'help', 'quit'")
     print("─"*60)
     
     verbose = True
@@ -145,6 +145,11 @@ def interactive_loop(system: IntelligenceSystem):
                 print("✅ Verbose mode disabled")
                 continue
             
+            if query.lower() == 'clear cache':
+                system.persistence.clear_cache()
+                print("✅ Cache cleared. Restart demo to re-ingest all articles.")
+                continue
+            
             if query.lower() == 'help':
                 print("""
 📚 HELP - Query Examples:
@@ -158,6 +163,7 @@ def interactive_loop(system: IntelligenceSystem):
 🔧 Commands:
    • stats - Show system statistics
    • verbose on/off - Toggle detailed output
+   • clear cache - Clear all persisted data
    • help - Show this help
    • quit - Exit the demo
 """)
@@ -200,27 +206,36 @@ def main():
     print("\n🔧 Initializing Intelligence System...")
     system = IntelligenceSystem(verbose=True)
     
-    # Ingest articles
-    print(f"\n📥 Ingesting {len(articles)} articles...")
-    print("   This may take a moment for embedding generation...")
+    # Ingest articles (only new ones)
+    print(f"\n📥 Checking {len(articles)} articles for new content...")
+    print("   Only new articles will be processed...")
     
     result = system.ingest(articles)
     
     print(f"\n{'─'*60}")
     print("📊 INGESTION SUMMARY")
     print(f"{'─'*60}")
-    print(f"   Total articles: {result['total_articles']}")
-    print(f"   Unique stories: {result['unique_count']}")
-    print(f"   Duplicates removed: {result['duplicate_count']}")
-    print(f"   Deduplication rate: {result['duplicate_count']/max(result['total_articles'],1)*100:.1f}%")
+    print(f"   Total articles checked: {result['total_articles']}")
+    print(f"   Already processed: {result['skipped_count']}")
+    print(f"   New unique stories: {result['unique_count']}")
+    print(f"   Duplicates in new batch: {result['duplicate_count']}")
+    if result['skipped_count'] > 0:
+        print(f"   \u2705 Incremental ingestion: Skipped {result['skipped_count']} previously processed articles")
     
-    # Show sample stories
-    print(f"\n{'─'*60}")
-    print("📰 SAMPLE STORIES (first 5)")
-    print(f"{'─'*60}")
-    
-    for i, story in enumerate(result['unique_stories'][:5], 1):
-        print_story_details(story, i, verbose=False)
+    # Show sample stories if any new ones were processed
+    if result['unique_stories']:
+        print(f"\n{'─'*60}")
+        print("📰 NEWLY INDEXED STORIES (first 5)")
+        print(f"{'─'*60}")
+        
+        for i, story in enumerate(result['unique_stories'][:5], 1):
+            print_story_details(story, i, verbose=False)
+    else:
+        print(f"\n{'─'*60}")
+        print("📰 NO NEW STORIES TO DISPLAY")
+        print(f"   All articles have been processed previously")
+        print(f"   Total stories in system: {system.get_stats()['indexed_stories']}")
+        print(f"{'─'*60}")
     
     # Enter interactive mode
     interactive_loop(system)
@@ -228,3 +243,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

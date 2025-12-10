@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from intanalysis.models import Article, QueryResult, UniqueStory
 from intanalysis.embeddings import VectorStore, EmbeddingService
 from intanalysis.workflow import build_ingestion_graph, build_query_graph, PipelineState
+from intanalysis.persistence import PersistenceManager
 
 
 class IntelligenceSystem:
@@ -27,21 +28,32 @@ class IntelligenceSystem:
             print(story.primary_article.article.title)
     """
     
-    def __init__(self, verbose: bool = True):
-        """Initialize the intelligence system."""
+    def __init__(self, verbose: bool = True, storage_dir: str = "dataset"):
+        """Initialize the intelligence system.
+        
+        Args:
+            verbose: Print processing information
+            storage_dir: Directory for persistence files
+        """
         load_dotenv()
         
         self.verbose = verbose
+        self.persistence = PersistenceManager(storage_dir=storage_dir)
         self._vector_store: Optional[VectorStore] = None
         self._ingestion_graph = None
         self._query_graph = None
     
     @property
     def vector_store(self) -> VectorStore:
-        """Get or create vector store."""
+        """Get or create vector store, loading from disk if available."""
         if self._vector_store is None:
             embedder = EmbeddingService.get_instance()
-            self._vector_store = VectorStore(dimension=embedder.dimension)
+            # Try loading from disk first
+            self._vector_store = self.persistence.load_vector_store(dimension=embedder.dimension)
+            if self._vector_store is None:
+                self._vector_store = VectorStore(dimension=embedder.dimension)
+            elif self.verbose:
+                print(f"📂 Loaded {len(self._vector_store.stories)} existing stories from disk")
         return self._vector_store
     
     @property
@@ -58,23 +70,49 @@ class IntelligenceSystem:
             self._query_graph = build_query_graph()
         return self._query_graph
     
-    def ingest(self, articles: list[dict | Article]) -> dict:
+    def ingest(self, articles: list[dict | Article], force: bool = False) -> dict:
         """
-        Ingest articles through the full pipeline.
+        Ingest articles through the full pipeline (incremental).
         
         Args:
             articles: List of articles (dicts or Article objects)
+            force: Force re-ingestion of all articles (ignore cache)
             
         Returns:
             Processing result with unique stories and stats
         """
+        # Filter out already processed articles
+        article_dicts = [
+            art if isinstance(art, dict) else art.__dict__
+            for art in articles
+        ]
+        
+        if not force:
+            new_articles, skipped = self.persistence.filter_new_articles(article_dicts)
+            if self.verbose and skipped > 0:
+                print(f"\n📌 Skipping {skipped} already processed articles")
+        else:
+            new_articles = article_dicts
+            skipped = 0
+        
+        if not new_articles:
+            if self.verbose:
+                print(f"\n✅ No new articles to process")
+            return {
+                "unique_stories": [],
+                "total_articles": len(articles),
+                "unique_count": 0,
+                "duplicate_count": 0,
+                "skipped_count": skipped,
+            }
+        
         if self.verbose:
             print(f"\n{'='*60}")
-            print(f"📥 INGESTING {len(articles)} ARTICLES")
+            print(f"📥 INGESTING {len(new_articles)} NEW ARTICLES")
             print(f"{'='*60}")
         
         initial_state: PipelineState = {
-            "raw_articles": articles,
+            "raw_articles": new_articles,
             "vector_store": self.vector_store,
             "errors": [],
         }
@@ -86,19 +124,25 @@ class IntelligenceSystem:
         
         unique_stories = result.get("unique_stories", [])
         
+        # Mark articles as seen and persist vector store
+        self.persistence.mark_articles_as_seen(new_articles)
+        self.persistence.save_vector_store(self.vector_store)
+        
         if self.verbose:
             print(f"\n{'='*60}")
             print(f"✅ INGESTION COMPLETE")
-            print(f"   • Unique stories: {len(unique_stories)}")
-            print(f"   • Duplicates removed: {len(articles) - len(unique_stories)}")
-            print(f"   • Indexed: {self.vector_store.index.ntotal}")
+            print(f"   • New unique stories: {len(unique_stories)}")
+            print(f"   • Duplicates in batch: {len(new_articles) - len(unique_stories)}")
+            print(f"   • Total indexed: {self.vector_store.index.ntotal}")
+            print(f"   • Persisted to disk ✓")
             print(f"{'='*60}\n")
         
         return {
             "unique_stories": unique_stories,
             "total_articles": len(articles),
             "unique_count": len(unique_stories),
-            "duplicate_count": len(articles) - len(unique_stories),
+            "duplicate_count": len(new_articles) - len(unique_stories),
+            "skipped_count": skipped,
         }
     
     def query(self, query_text: str, show_steps: bool = True) -> QueryResult:
