@@ -137,7 +137,7 @@ def format_query_as_markdown(query: str, stories: list, explanation: str) -> str
     if explanation:
         md += f"## Summary\n{explanation}\n\n"
     
-    md += f"## Found {len(stories)} Stories\n\n"
+    md += f"## {len(stories)} source{'s' if len(stories) != 1 else ''} found.\n\n"
     
     for i, story in enumerate(stories, 1):
         md += f"### {i}. {story.title}\n\n"

@@ -115,22 +115,62 @@ Return JSON array of impacted stocks."""
 
         return self.extract_json(prompt, "You are a financial market analyst.")
     
-    def explain_query_results(self, query: str, results: list[dict]) -> str:
-        """Generate intelligent answer to query using article content."""
-        prompt = f"""You are a financial news analyst. Answer the user's question directly using the information from these news articles.
+    def explain_query_results(self, query: str, results: list[dict]) -> dict:
+        """Generate intelligent answer to query using article content.
+        
+        Returns a dict with:
+        - explanation: str - The answer text
+        - relevant_indices: list[int] - Indices of articles that are relevant to the query
+        """
+        # Number articles for reference
+        numbered_results = []
+        for i, r in enumerate(results[:10]):
+            numbered_results.append({
+                "index": i,
+                "title": r.get("title", ""),
+                "source": r.get("source", ""),
+                "content": r.get("content", "")[:500],
+                "entities": r.get("entities", [])
+            })
+        
+        prompt = f"""You are a financial news analyst. Analyze the user's query and the provided news articles.
 
 User Question: {query}
 
-Relevant News Articles:
-{json.dumps(results[:5], indent=2)}
+News Articles:
+{json.dumps(numbered_results, indent=2)}
 
 Instructions:
-1. Directly answer the question using facts from the articles
-2. Cite the source when mentioning specific information
-3. If the articles contain the answer, provide it clearly
-4. Keep the response concise but informative (3-5 sentences)
-5. If the articles don't fully answer the question, say what they do tell us
+1. First determine if the question is related to financial news/markets
+2. If NOT related to financial news (like greetings, general chat, off-topic), return:
+   {{"explanation": "I couldn't find relevant financial news to answer your query. Please try asking about specific stocks, companies, sectors, or market news.", "relevant_indices": []}}
 
-Answer:"""
+3. If it IS a financial query, identify ONLY the articles that are directly relevant to answering the question
+4. An article is relevant if it discusses the specific topic, company, sector, or issue mentioned in the query
+5. Do NOT include articles that are only tangentially related or just happen to mention similar terms
 
-        return self.generate(prompt, "You are an intelligent financial news assistant that provides direct, factual answers based on news sources.", max_tokens=500)
+Return a JSON object:
+{{
+  "explanation": "Your concise answer (3-5 sentences) using ONLY information from relevant articles. Cite sources.",
+  "relevant_indices": [0, 2, 3]  // List of article indices that are actually relevant, can be empty
+}}
+
+Return ONLY valid JSON, no other text."""
+
+        response = self.generate(prompt, "You are an intelligent financial news assistant. Return only valid JSON.", max_tokens=600)
+        
+        # Parse the response
+        try:
+            # Try to extract JSON from response
+            import re
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        
+        # Fallback: return all results if parsing fails
+        return {
+            "explanation": response,
+            "relevant_indices": list(range(len(results[:10])))
+        }

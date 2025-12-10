@@ -104,3 +104,8 @@ intanalysis query "Banking sector news"
 ## License
 
 MIT
+
+
+ uvicorn api.main:app --reload --port 8000  
+ npm install
+npm run dev

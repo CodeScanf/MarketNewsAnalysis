@@ -457,12 +457,13 @@ class QueryAgent(BaseAgent):
         self.log("Step 5: Applying entity-based boosting...")
         filtered_results = self._filter_by_entities(results, query_entities)
         
-        # Limit to top 5 results
-        top_results = filtered_results[:5]
+        # Limit to top 10 results for LLM evaluation
+        top_results = filtered_results[:10]
         
-        # Step 6: Generate intelligent answer
-        self.log("Step 6: Generating AI answer...")
+        # Step 6: Generate intelligent answer and filter relevant results
+        self.log("Step 6: Generating AI answer and filtering relevant sources...")
         explanation = None
+        final_results = []
         if self.llm and top_results:
             try:
                 # Include full content for better answers
@@ -475,18 +476,37 @@ class QueryAgent(BaseAgent):
                     }
                     for s, _ in top_results
                 ]
-                explanation = self.llm.explain_query_results(query, result_summaries)
+                llm_response = self.llm.explain_query_results(query, result_summaries)
+                
+                # Handle structured response
+                if isinstance(llm_response, dict):
+                    explanation = llm_response.get("explanation", "")
+                    relevant_indices = llm_response.get("relevant_indices", [])
+                    
+                    # Filter to only relevant results
+                    final_results = [top_results[i] for i in relevant_indices if i < len(top_results)]
+                    self.log(f"   LLM identified {len(final_results)} relevant sources out of {len(top_results)}")
+                else:
+                    # Fallback for string response
+                    explanation = llm_response
+                    final_results = top_results[:5]
             except Exception as e:
                 self.log(f"   Warning: Could not generate AI answer: {e}")
+                final_results = top_results[:5]
+        else:
+            final_results = top_results[:5]
+
+        # Determine final entities based on whether we have relevant results
+        final_entities = query_entities if final_results else []
 
         state["query_result"] = QueryResult(
             query=query,
-            stories=[s for s, _ in top_results],
-            matched_entities=[Entity(name=e["name"], type=e["type"]) for e in query_entities],
+            stories=[s for s, _ in final_results],
+            matched_entities=[Entity(name=e["name"], type=e["type"]) for e in final_entities],
             explanation=explanation
         )
 
-        self.log(f"Query '{query}' returned {len(top_results)} results")
+        self.log(f"Query '{query}' returned {len(final_results)} results")
         return state
     
     def _extract_query_entities(self, query: str) -> list[dict]:
