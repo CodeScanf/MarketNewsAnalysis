@@ -2,6 +2,7 @@
 
 import os
 import json
+import re
 from typing import Optional
 from pathlib import Path
 
@@ -142,31 +143,39 @@ News Articles:
 
 Instructions:
 1. First determine if the question is related to financial news/markets
-2. If NOT related to financial news (like greetings, general chat, off-topic), return:
-   {{"explanation": "I couldn't find relevant financial news to answer your query. Please try asking about specific stocks, companies, sectors, or market news.", "relevant_indices": []}}
+2. If NOT related to financial news (like greetings, general chat, off-topic), return empty relevant_indices
+3. If it IS a financial query, identify ONLY the articles that are DIRECTLY relevant to answering the question
+4. An article is relevant ONLY if it specifically discusses the topic in the query (e.g., for "RBI policy", only articles about RBI/Reserve Bank policies)
+5. Do NOT include articles that are only tangentially related or just happen to mention banking/finance in general
 
-3. If it IS a financial query, identify ONLY the articles that are directly relevant to answering the question
-4. An article is relevant if it discusses the specific topic, company, sector, or issue mentioned in the query
-5. Do NOT include articles that are only tangentially related or just happen to mention similar terms
+You MUST respond with ONLY a valid JSON object in this exact format (no other text before or after):
+{{"explanation": "Your 2-4 sentence answer using facts from relevant articles only. If no relevant articles, say so.", "relevant_indices": [0, 2]}}"""
 
-Return a JSON object:
-{{
-  "explanation": "Your concise answer (3-5 sentences) using ONLY information from relevant articles. Cite sources.",
-  "relevant_indices": [0, 2, 3]  // List of article indices that are actually relevant, can be empty
-}}
-
-Return ONLY valid JSON, no other text."""
-
-        response = self.generate(prompt, "You are an intelligent financial news assistant. Return only valid JSON.", max_tokens=600)
+        response = self.generate(prompt, "You are a JSON-only response assistant. Output valid JSON only, no markdown, no explanation outside JSON.", max_tokens=600)
         
         # Parse the response
         try:
+            # Clean up response - remove markdown code blocks if present
+            clean_response = response.strip()
+            if clean_response.startswith("```"):
+                # Remove markdown code block
+                clean_response = re.sub(r'^```(?:json)?\s*', '', clean_response)
+                clean_response = re.sub(r'\s*```$', '', clean_response)
+            
             # Try to extract JSON from response
-            import re
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            json_match = re.search(r'\{[^{}]*"explanation"[^{}]*"relevant_indices"[^{}]*\[[\d,\s]*\][^{}]*\}', clean_response, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group())
-        except (json.JSONDecodeError, AttributeError):
+                parsed = json.loads(json_match.group())
+                # Validate the structure
+                if "explanation" in parsed and "relevant_indices" in parsed:
+                    return parsed
+            
+            # Try direct parse
+            parsed = json.loads(clean_response)
+            if "explanation" in parsed and "relevant_indices" in parsed:
+                return parsed
+                
+        except (json.JSONDecodeError, AttributeError) as e:
             pass
         
         # Fallback: return all results if parsing fails

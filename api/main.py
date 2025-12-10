@@ -7,6 +7,7 @@ from typing import List, Optional
 import json
 
 from intanalysis import IntelligenceSystem, Article
+from intanalysis.chat_history import ChatHistoryManager
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -26,6 +27,9 @@ app.add_middleware(
 
 # Initialize the Intelligence System
 system = IntelligenceSystem(verbose=True)
+
+# Initialize Chat History Manager
+chat_history = ChatHistoryManager.get_instance()
 
 
 # Request/Response Models
@@ -280,6 +284,18 @@ async def query_system(request: QueryRequest):
         
         markdown = format_query_as_markdown(request.query, stories, result.explanation)
         
+        # Save chat to history
+        try:
+            chat_history.save_chat(
+                query=request.query,
+                explanation=result.explanation,
+                stories=stories,
+                matched_entities=entities,
+                markdown_response=markdown
+            )
+        except Exception:
+            pass  # Don't fail the query if history save fails
+        
         return QueryResponse(
             query=result.query,
             stories=stories,
@@ -385,6 +401,70 @@ async def run_demo():
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "financial-news-intelligence"}
+
+
+# Chat History Endpoints
+@app.get("/chats")
+async def get_chat_history(limit: int = 50):
+    """
+    Get recent chat history.
+    
+    Args:
+        limit: Maximum number of chats to return (default 50)
+    """
+    try:
+        chats = chat_history.get_recent_chats(limit=limit)
+        return {"chats": chats, "count": len(chats)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chats/{chat_id}")
+async def get_chat(chat_id: int):
+    """Get a specific chat by ID."""
+    try:
+        chat = chat_history.get_chat_by_id(chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        return chat
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chats/search/{search_query}")
+async def search_chats(search_query: str, limit: int = 20):
+    """Search chat history by query text."""
+    try:
+        chats = chat_history.search_chats(search_query, limit=limit)
+        return {"chats": chats, "count": len(chats)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/chats/{chat_id}")
+async def delete_chat(chat_id: int):
+    """Delete a specific chat."""
+    try:
+        deleted = chat_history.delete_chat(chat_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        return {"message": "Chat deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/chats")
+async def clear_chat_history():
+    """Clear all chat history."""
+    try:
+        count = chat_history.clear_history()
+        return {"message": f"Cleared {count} chats"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
