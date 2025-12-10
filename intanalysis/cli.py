@@ -2,6 +2,7 @@
 
 import argparse
 import json
+from typing import Union, Dict, Any, Sequence
 from intanalysis.core import IntelligenceSystem
 
 
@@ -115,7 +116,7 @@ def run_demo():
     # Ingest articles
     print("\n📥 STEP 1: INGESTING ARTICLES")
     print("-" * 50)
-    result = system.ingest(articles)
+    result = system.ingest(articles) # type: ignore
     
     print(f"\n📊 INGESTION RESULTS:")
     print(f"   Total articles processed: {result['total_articles']}")
