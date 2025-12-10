@@ -164,7 +164,7 @@ Submit a complete package including:
 
 - **README.md:** Setup instructions, architecture overview, usage examples
 - **ARCHITECTURE.md:** System design, agent flow, technical decisions
-- **Performance benchmarks** and accuracy metrics
+- **Performance benchmarks** and accuracy metrics 
 
 ### Demo
 
