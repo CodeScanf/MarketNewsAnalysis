@@ -1,269 +1,160 @@
-import { useState, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { queryNews, ingestArticles, runDemo, getStats } from './api';
+import { queryNews } from './api';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('query');
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [markdown, setMarkdown] = useState('');
-  const [stats, setStats] = useState(null);
+  const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
-  // Query state
-  const [query, setQuery] = useState('');
-
-  // Ingest state
-  const [articles, setArticles] = useState([]);
-  const [newArticle, setNewArticle] = useState({ title: '', content: '', source: '' });
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   useEffect(() => {
-    fetchStats();
+    scrollToBottom();
+  }, [messages]);
+
+  useEffect(() => {
+    inputRef.current?.focus();
   }, []);
 
-  const fetchStats = async () => {
-    try {
-      const data = await getStats();
-      setStats(data);
-    } catch (err) {
-      console.error('Failed to fetch stats:', err);
-    }
-  };
-
-  const handleQuery = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!query.trim()) return;
+    if (!input.trim() || loading) return;
 
+    const userMessage = input.trim();
+    setInput('');
+    setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
-    setError(null);
+
     try {
-      const result = await queryNews(query);
-      setMarkdown(result.markdown_response);
+      const result = await queryNews(userMessage);
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: result.markdown_response },
+      ]);
     } catch (err) {
-      setError(err.response?.data?.detail || err.message);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: `**Error:** ${err.response?.data?.detail || err.message}`,
+        },
+      ]);
     } finally {
       setLoading(false);
+      inputRef.current?.focus();
     }
   };
 
-  const handleQuickQuery = (q) => {
-    setQuery(q);
-  };
-
-  const handleDemo = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await runDemo();
-      setMarkdown(result.markdown_response);
-      fetchStats();
-    } catch (err) {
-      setError(err.response?.data?.detail || err.message);
-    } finally {
-      setLoading(false);
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
     }
   };
 
-  const addArticle = () => {
-    if (!newArticle.title.trim() || !newArticle.content.trim()) return;
-    setArticles([...articles, { ...newArticle }]);
-    setNewArticle({ title: '', content: '', source: '' });
-  };
-
-  const removeArticle = (index) => {
-    setArticles(articles.filter((_, i) => i !== index));
-  };
-
-  const handleIngest = async () => {
-    if (articles.length === 0) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await ingestArticles(articles);
-      setMarkdown(`# Ingestion Complete\n\n**Total Articles:** ${result.total_articles}\n\n**Unique Stories:** ${result.unique_count}\n\n**Duplicates Found:** ${result.duplicate_count}\n\n**Skipped:** ${result.skipped_count}\n\n${result.message}`);
-      setArticles([]);
-      fetchStats();
-    } catch (err) {
-      setError(err.response?.data?.detail || err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const suggestions = [
+    'HDFC Bank news',
+    'Banking sector update',
+    'RBI policy changes',
+    'Interest rate impact',
+  ];
 
   return (
-    <div className="app">
-      <header className="header">
-        <h1>🏦 Financial News Intelligence</h1>
-        <p>AI-Powered news processing, deduplication, and intelligent querying</p>
+    <div className="chat-container">
+      {/* Header */}
+      <header className="chat-header">
+        <h1>Financial News Intelligence</h1>
       </header>
 
-      {stats && (
-        <div className="stats">
-          <div className="stat">
-            <div className="stat-value">{stats.total_stories}</div>
-            <div className="stat-label">Total Stories</div>
-          </div>
-          <div className="stat">
-            <div className="stat-value">{stats.indexed_stories}</div>
-            <div className="stat-label">Indexed</div>
-          </div>
-        </div>
-      )}
-
-      <div className="tabs">
-        <button
-          className={`tab ${activeTab === 'query' ? 'active' : ''}`}
-          onClick={() => setActiveTab('query')}
-        >
-          🔍 Query
-        </button>
-        <button
-          className={`tab ${activeTab === 'ingest' ? 'active' : ''}`}
-          onClick={() => setActiveTab('ingest')}
-        >
-          📥 Ingest
-        </button>
-        <button
-          className={`tab ${activeTab === 'demo' ? 'active' : ''}`}
-          onClick={() => setActiveTab('demo')}
-        >
-          🎮 Demo
-        </button>
-      </div>
-
-      {error && <div className="error">⚠️ {error}</div>}
-
-      {activeTab === 'query' && (
-        <div className="card">
-          <h2>Query News</h2>
-          <form onSubmit={handleQuery}>
-            <div className="form-group">
-              <label>Enter your query</label>
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="e.g., HDFC Bank news, Banking sector update, RBI policy changes"
-              />
-            </div>
-            <button type="submit" className="btn btn-primary" disabled={loading || !query.trim()}>
-              {loading ? 'Searching...' : 'Search'}
-            </button>
-          </form>
-
-          <div className="quick-actions">
-            <span style={{ color: '#71717a', fontSize: '0.8rem' }}>Quick queries:</span>
-            <button className="quick-action" onClick={() => handleQuickQuery('HDFC Bank news')}>
-              HDFC Bank
-            </button>
-            <button className="quick-action" onClick={() => handleQuickQuery('Banking sector update')}>
-              Banking Sector
-            </button>
-            <button className="quick-action" onClick={() => handleQuickQuery('RBI policy changes')}>
-              RBI Policy
-            </button>
-            <button className="quick-action" onClick={() => handleQuickQuery('Interest rate impact')}>
-              Interest Rates
-            </button>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'ingest' && (
-        <div className="card">
-          <h2>Ingest Articles</h2>
-          
-          <div className="form-group">
-            <label>Article Title</label>
-            <input
-              type="text"
-              value={newArticle.title}
-              onChange={(e) => setNewArticle({ ...newArticle, title: e.target.value })}
-              placeholder="Enter article title"
-            />
-          </div>
-          
-          <div className="form-group">
-            <label>Content</label>
-            <textarea
-              value={newArticle.content}
-              onChange={(e) => setNewArticle({ ...newArticle, content: e.target.value })}
-              placeholder="Enter article content"
-            />
-          </div>
-          
-          <div className="form-group">
-            <label>Source (optional)</label>
-            <input
-              type="text"
-              value={newArticle.source}
-              onChange={(e) => setNewArticle({ ...newArticle, source: e.target.value })}
-              placeholder="e.g., Economic Times"
-            />
-          </div>
-          
-          <button className="btn btn-secondary" onClick={addArticle} style={{ marginRight: '0.5rem' }}>
-            Add Article
-          </button>
-          
-          {articles.length > 0 && (
-            <>
-              <h3 style={{ margin: '1.5rem 0 1rem', fontSize: '0.95rem' }}>
-                Articles to Ingest ({articles.length})
-              </h3>
-              {articles.map((article, index) => (
-                <div key={index} className="article-item">
-                  <h4>{article.title}</h4>
-                  <p>{article.content.substring(0, 100)}...</p>
-                  <button className="remove-btn" onClick={() => removeArticle(index)}>
-                    Remove
-                  </button>
-                </div>
+      {/* Messages Area */}
+      <main className="chat-messages">
+        {messages.length === 0 ? (
+          <div className="welcome">
+            <div className="welcome-icon">📊</div>
+            <h2>How can I help you today?</h2>
+            <p>Ask me about financial news, market updates, or company information.</p>
+            <div className="suggestions">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  className="suggestion"
+                  onClick={() => setInput(s)}
+                >
+                  {s}
+                </button>
               ))}
-              <button className="btn btn-primary" onClick={handleIngest} disabled={loading} style={{ marginTop: '1rem' }}>
-                {loading ? 'Processing...' : `Ingest ${articles.length} Article(s)`}
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'demo' && (
-        <div className="card">
-          <h2>Run Demo</h2>
-          <p style={{ color: '#a1a1aa', marginBottom: '1rem' }}>
-            Load sample articles from the problem statement and process them through the intelligence system.
-          </p>
-          <button className="btn btn-primary" onClick={handleDemo} disabled={loading}>
-            {loading ? 'Running Demo...' : 'Run Demo'}
-          </button>
-        </div>
-      )}
-
-      {loading && (
-        <div className="loading">
-          <div className="spinner"></div>
-          Processing...
-        </div>
-      )}
-
-      {markdown && !loading && (
-        <div className="card">
-          <h2>Results</h2>
-          <div className="markdown-content">
-            <ReactMarkdown>{markdown}</ReactMarkdown>
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="messages-list">
+            {messages.map((msg, idx) => (
+              <div key={idx} className={`message ${msg.role}`}>
+                <div className="message-avatar">
+                  {msg.role === 'user' ? '👤' : '🤖'}
+                </div>
+                <div className="message-content">
+                  {msg.role === 'user' ? (
+                    <p>{msg.content}</p>
+                  ) : (
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  )}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div className="message assistant">
+                <div className="message-avatar">🤖</div>
+                <div className="message-content">
+                  <div className="typing">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
+      </main>
 
-      {!markdown && !loading && (
-        <div className="empty-state">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
-          </svg>
-          <p>Run a query or demo to see results</p>
-        </div>
-      )}
+      {/* Input Area */}
+      <footer className="chat-input-area">
+        <form onSubmit={handleSubmit} className="chat-form">
+          <div className="input-wrapper">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask about financial news..."
+              disabled={loading}
+            />
+            <button
+              type="submit"
+              disabled={!input.trim() || loading}
+              className="send-btn"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+              </svg>
+            </button>
+          </div>
+        </form>
+        <p className="disclaimer">
+          AI-powered financial news analysis. Results may vary.
+        </p>
+      </footer>
     </div>
   );
 }

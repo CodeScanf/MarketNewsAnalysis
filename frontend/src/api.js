@@ -14,24 +14,4 @@ export const queryNews = async (query) => {
   return response.data;
 };
 
-export const ingestArticles = async (articles, force = false) => {
-  const response = await api.post('/ingest', { articles, force });
-  return response.data;
-};
-
-export const runDemo = async () => {
-  const response = await api.get('/demo');
-  return response.data;
-};
-
-export const getStats = async () => {
-  const response = await api.get('/stats');
-  return response.data;
-};
-
-export const healthCheck = async () => {
-  const response = await api.get('/health');
-  return response.data;
-};
-
 export default api;
