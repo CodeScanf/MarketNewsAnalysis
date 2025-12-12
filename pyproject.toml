@@ -34,6 +34,9 @@ dependencies = [
     # API
     "fastapi>=0.104.0",
     "uvicorn>=0.24.0",
+
+    # Dataset 
+    "feedparser>=6.0.12"
 ]
 
 [project.optional-dependencies]

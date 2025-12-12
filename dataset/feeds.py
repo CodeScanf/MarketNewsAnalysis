@@ -15,8 +15,8 @@ class NewsRSSMonitor:
         check_interval: seconds between checks (default: 300 = 5 minutes)
         """
         self.check_interval = check_interval
-        self.seen_articles: Set[str] = set()
-        self.cache_file = './feed_dataset/seen_articles.json'
+        self.articals_loaded: Set[str] = set()
+        self.cache_file = './dataset/articals_loaded.json'
         
         # Popular Indian news RSS feeds
         self.feeds = {
@@ -34,24 +34,24 @@ class NewsRSSMonitor:
 
         
         # Load previously seen articles
-        self.load_seen_articles()
+        self.load_articals_loaded()
     
-    def load_seen_articles(self):
+    def load_articals_loaded(self):
         """Load previously seen article IDs from cache"""
         if os.path.exists(self.cache_file):
             try:
                 with open(self.cache_file, 'r') as f:
                     data = json.load(f)
-                    self.seen_articles = set(data.get('seen', []))
-                print(f"Loaded {len(self.seen_articles)} previously seen articles")
+                    self.articals_loaded = set(data.get('seen', []))
+                print(f"Loaded {len(self.articals_loaded)} previously seen articles")
             except Exception as e:
                 print(f"Error loading cache: {e}")
     
-    def save_seen_articles(self):
+    def save_articals_loaded(self):
         """Save seen article IDs to cache"""
         try:
             with open(self.cache_file, 'w') as f:
-                json.dump({'seen': list(self.seen_articles)}, f)
+                json.dump({'seen': list(self.articals_loaded)}, f)
         except Exception as e:
             print(f"Error saving cache: {e}")
     
@@ -74,7 +74,7 @@ class NewsRSSMonitor:
                         continue  # Skip articles older than 30 days
                 
                 # Check if this is a new article
-                if article_id and article_id not in self.seen_articles:
+                if article_id and article_id not in self.articals_loaded:
                     # Extract all available RSS fields
                     article = {
                         'id': article_id,
@@ -103,7 +103,7 @@ class NewsRSSMonitor:
                         'fetched_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     }
                     new_articles.append(article)
-                    self.seen_articles.add(article_id)
+                    self.articals_loaded.add(article_id)
             
             return new_articles
         except Exception as e:
@@ -146,7 +146,7 @@ class NewsRSSMonitor:
         print(f"Summary: {summary[:300]}...")
         print("="*80)
     
-    def save_article_to_file(self, article: Dict, filename: str = './feed_dataset/rss_feeds_all.json'):
+    def save_article_to_file(self, article: Dict, filename: str = './dataset/rss_feeds_all.json'):
         """Save new article to a single JSON file"""
         try:
             # Load existing articles
@@ -163,7 +163,7 @@ class NewsRSSMonitor:
                 json.dump(articles, f, indent=2, ensure_ascii=False)
             
             # Also save published dates to txt file
-            txt_filename = './feed_dataset/published_dates.txt'
+            txt_filename = './dataset/published_dates.txt'
             with open(txt_filename, 'a', encoding='utf-8') as f:
                 f.write(f"{article['published']}\n")
             
@@ -206,7 +206,7 @@ class NewsRSSMonitor:
                     print("No new articles found")
                 
                 # Save seen articles cache
-                self.save_seen_articles()
+                self.save_articals_loaded()
                 
                 # Wait before next check
                 print(f"\n💤 Waiting {self.check_interval} seconds until next check...")
@@ -214,7 +214,7 @@ class NewsRSSMonitor:
                 
         except KeyboardInterrupt:
             print("\n\n🛑 Monitoring stopped by user")
-            self.save_seen_articles()
+            self.save_articals_loaded()
     
     def check_once(self, keywords: List[str] = None, save_to_file: bool = True):
         """Check feeds once and return new articles"""
@@ -231,7 +231,7 @@ class NewsRSSMonitor:
         else:
             print("No new articles found")
         
-        self.save_seen_articles()
+        self.save_articals_loaded()
         return new_articles
 
 
