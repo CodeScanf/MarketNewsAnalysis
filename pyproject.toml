@@ -19,7 +19,7 @@ dependencies = [
     "langgraph>=0.2.0",
     "langchain>=0.3.0",
     # LLM
-    "anthropic>=0.30.0",
+    "openai>=1.30.0",
     # Embeddings & Vector Store
     "sentence-transformers>=2.2.0",
     "faiss-cpu>=1.7.0",

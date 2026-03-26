@@ -1,13 +1,12 @@
-"""LLM service using Claude/Anthropic API."""
+"""LLM service using DeepSeek's OpenAI-compatible API."""
 
 import os
 import json
 import re
-from typing import Optional
+from typing import Optional, Any
 from pathlib import Path
 
-from anthropic import Anthropic
-from pydantic import BaseModel
+from openai import OpenAI
 
 # Load .env file from project root or parent directories
 def _load_env():
@@ -37,17 +36,33 @@ _load_env()
 
 
 class LLMService:
-    """Claude API wrapper with singleton pattern."""
+    """DeepSeek API wrapper with singleton pattern."""
     
     _instance: Optional["LLMService"] = None
     
-    def __init__(self, api_key: Optional[str] = None):
-        # Check multiple possible env var names
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+    ):
+        # Support both the user's requested variable names and DeepSeek-specific names.
+        self.api_key = api_key or os.getenv("API_KEY") or os.getenv("DEEPSEEK_API_KEY")
         if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY or CLAUDE_API_KEY required")
-        self.client = Anthropic(api_key=self.api_key)
-        self.model = "claude-3-haiku-20240307"
+            raise ValueError("API_KEY or DEEPSEEK_API_KEY required")
+        self.base_url = (
+            base_url
+            or os.getenv("BASE_URL")
+            or os.getenv("DEEPSEEK_BASE_URL")
+            or "https://api.deepseek.com"
+        )
+        self.model = (
+            model
+            or os.getenv("MODEL_ID")
+            or os.getenv("DEEPSEEK_MODEL")
+            or "deepseek-chat"
+        )
+        self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
     
     @classmethod
     def get_instance(cls) -> "LLMService":
@@ -57,16 +72,23 @@ class LLMService:
     
     def generate(self, prompt: str, system: str = "", max_tokens: int = 1024) -> str:
         """Generate text completion."""
-        response = self.client.messages.create(
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        response = self.client.chat.completions.create(
             model=self.model,
+            messages=messages,
             max_tokens=max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
         )
-        return response.content[0].text
+        content = response.choices[0].message.content
+        if isinstance(content, str):
+            return content
+        return ""
     
-    def extract_json(self, prompt: str, system: str = "") -> dict:
+    def extract_json(self, prompt: str, system: str = "") -> Any:
         """Generate and parse JSON response."""
         full_system = f"{system}\nRespond ONLY with valid JSON, no markdown or explanation."
         response = self.generate(prompt, full_system)
@@ -79,7 +101,7 @@ class LLMService:
         return json.loads(response.strip())
     
     def extract_entities(self, text: str) -> list[dict]:
-        """Extract financial entities using Claude."""
+        """Extract financial entities using DeepSeek."""
         prompt = f"""Extract financial entities from this news article.
 
 Article:
@@ -97,7 +119,7 @@ Return JSON array:
         return self.extract_json(prompt, "You are a financial entity extraction expert.")
     
     def analyze_stock_impact(self, article_text: str, entities: list[dict]) -> list[dict]:
-        """Analyze stock impact using Claude."""
+        """Analyze stock impact using DeepSeek."""
         prompt = f"""Analyze stock market impact of this news.
 
 Article:

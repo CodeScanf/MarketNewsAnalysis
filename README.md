@@ -61,7 +61,7 @@ An AI-powered multi-agent system for processing financial news using LangGraph. 
 - Python 3.9+
 - Node.js 18+ (for frontend)
 - pip or conda
-- Anthropic API key (for Claude LLM features)
+- DeepSeek API key (for LLM features)
 
 ### Installation
 
@@ -87,10 +87,13 @@ Create a `.env` file in the project root:
 
 ```bash
 # Required for LLM features (AI explanations, enhanced entity extraction)
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
+API_KEY=your_deepseek_api_key_here
+BASE_URL=https://api.deepseek.com
+MODEL_ID=deepseek-chat
 
-# Optional: Customize model
-# ANTHROPIC_MODEL=claude-3-5-haiku-latest
+# Optional: Customize model or endpoint
+# DEEPSEEK_MODEL=deepseek-chat
+# DEEPSEEK_BASE_URL=https://api.deepseek.com
 ```
 
 ### Verify Installation
