@@ -1,5 +1,6 @@
 """FastAPI application for Financial News Intelligence System."""
 
+import sys
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -8,6 +9,21 @@ import json
 
 from intanalysis import IntelligenceSystem, Article
 from intanalysis.chat_history import ChatHistoryManager
+
+
+def _configure_console_encoding() -> None:
+    """Prefer UTF-8 console output to avoid Windows GBK encoding errors."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+_configure_console_encoding()
 
 # Initialize FastAPI app
 app = FastAPI(

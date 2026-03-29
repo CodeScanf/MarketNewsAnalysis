@@ -1,5 +1,6 @@
 """Core IntelligenceSystem - main interface for the package."""
 
+import sys
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -7,6 +8,21 @@ from intanalysis.models import Article, QueryResult, UniqueStory
 from intanalysis.embeddings import VectorStore, EmbeddingService
 from intanalysis.workflow import build_ingestion_graph, build_query_graph, PipelineState
 from intanalysis.persistence import PersistenceManager
+
+
+def _configure_console_encoding() -> None:
+    """Prefer UTF-8 console output to avoid Windows GBK encoding errors."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+_configure_console_encoding()
 
 
 class IntelligenceSystem:
