@@ -278,7 +278,7 @@ Query: "HDFC Bank news"
     ▼
 ┌─────────────────────────────────────────┐
 │ Step 4: Cross-Encoder Re-ranking        │
-│   → ms-marco-MiniLM-L-6-v2              │
+│   → BAAI/bge-reranker-base              │
 │   → Re-score query-document pairs       │
 │   → Top 10 results                      │
 └─────────────────────────────────────────┘
@@ -397,10 +397,10 @@ Bi-encoders (embedding search) trade accuracy for speed. Cross-encoders are more
 
 ```
 Stage 1: Bi-encoder retrieval (fast, top 20)
-    → all-mpnet-base-v2 (768-dim embeddings)
+    → BAAI/bge-base-zh-v1.5 (768-dim embeddings)
     
 Stage 2: Cross-encoder re-ranking (accurate, top 10)
-    → ms-marco-MiniLM-L-6-v2 (query-document pairs)
+    → BAAI/bge-reranker-base (query-document pairs)
 ```
 
 ### Why Union-Find for Deduplication?
@@ -477,7 +477,7 @@ Third Run (5 New):
 
 ### Embedding Optimization
 
-- **Model:** `all-mpnet-base-v2` (768-dim, normalized)
+- **Model:** `BAAI/bge-base-zh-v1.5` (768-dim, normalized)
 - **Batching:** Process articles in batches
 - **Caching:** Singleton pattern for model loading
 
@@ -601,7 +601,7 @@ Storage Size (MB)
 | Aspect | Decision | Rationale |
 |--------|----------|-----------|
 | Framework | LangGraph | Multi-agent orchestration, state management |
-| Embeddings | all-mpnet-base-v2 | Balance of quality and speed |
+| Embeddings | BAAI/bge-base-zh-v1.5 | Better semantic retrieval for Chinese news |
 | Vector DB | FAISS HNSW | Scalable approximate search |
 | Sparse Search | BM25Okapi | Keyword matching complement |
 | Re-ranker | CrossEncoder | Accuracy boost for top results |

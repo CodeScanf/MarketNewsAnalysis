@@ -14,8 +14,8 @@ class EmbeddingService:
     
     _instance: Optional["EmbeddingService"] = None
     
-    def __init__(self, model_name: str = "all-mpnet-base-v2"):
-        """Use all-mpnet-base-v2 (768-dim) for better quality."""
+    def __init__(self, model_name: str = "BAAI/bge-base-zh-v1.5"):
+        """Use a Chinese-friendly embedding model for semantic retrieval."""
         self.model = SentenceTransformer(model_name)
         self.dimension = self.model.get_sentence_embedding_dimension()
     
@@ -39,7 +39,7 @@ class Reranker:
     
     _instance: Optional["Reranker"] = None
     
-    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
+    def __init__(self, model_name: str = "BAAI/bge-reranker-base"):
         self.model = CrossEncoder(model_name, max_length=512)
     
     @classmethod

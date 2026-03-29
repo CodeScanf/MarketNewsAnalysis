@@ -13,7 +13,7 @@ from intanalysis.models import Article, UniqueStory, QueryResult
 
 def load_rss_feeds(file_path: str, limit: Optional[int] = None) -> list[dict]:
     """Load RSS feed articles from JSON file."""
-    with open(file_path, 'r') as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     
     articles = []

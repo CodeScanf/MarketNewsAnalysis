@@ -30,7 +30,7 @@ This document provides performance benchmarks and accuracy metrics for the IntAn
 
 ### Overview
 
-The deduplication agent uses semantic embeddings (all-mpnet-base-v2) with Union-Find clustering to identify duplicate articles covering the same event.
+The deduplication agent uses semantic embeddings (BAAI/bge-base-zh-v1.5) with Union-Find clustering to identify duplicate articles covering the same event.
 
 ### Test Methodology
 
@@ -269,9 +269,9 @@ Query relevance measures how well the system retrieves relevant articles for nat
 
 | Component | Memory | Notes |
 |-----------|--------|-------|
-| Embedding Model | 420 MB | all-mpnet-base-v2 |
+| Embedding Model | 420 MB | BAAI/bge-base-zh-v1.5 |
 | spaCy NER | 180 MB | en_core_web_sm |
-| CrossEncoder | 85 MB | ms-marco-MiniLM |
+| CrossEncoder | ~500 MB | BAAI/bge-reranker-base |
 | FAISS Index (1K articles) | 12 MB | HNSW, 768-dim |
 | Python Overhead | 200 MB | Base interpreter |
 | **Total (1K articles)** | **~1.0 GB** | |

@@ -45,17 +45,27 @@ The data collection system continuously monitors RSS feeds from major Indian fin
 
 ## RSS Feed Sources
 
-The system monitors the following Indian financial news sources:
+The system monitors the following finance, business, and technology RSS sources:
 
-1. **The Hindu Business** - Business news and analysis
-2. **Economic Times** - Top stories and market news
-3. **Business Standard** - Top business stories
-4. **Moneycontrol** - Latest financial news
-5. **LiveMint** - Company and market news
-6. **NDTV Business** - Business and economy updates
-7. **Indian Express Business** - Business section feed
-8. **Financial Express** - Business and markets coverage
-9. **Trade Brains** - Investment and trading articles
+1. **叶檀财经** - 财经评论与市场观察
+2. **华尔街见闻** - 宏观、市场与商业资讯
+3. **财新网** - 财经深度报道
+4. **第一财经周刊** - 商业与消费报道
+5. **经济观察网** - 财经与产业观察
+6. **财富中文网** - 商业管理与公司新闻
+7. **路透中文** - 国际财经新闻
+8. **雪球热门话题** - 投资社区热点
+9. **36氪** - 创投、科技和商业报道
+10. **虎嗅** - 科技与商业评论
+11. **钛媒体** - 科技商业资讯
+12. **界面新闻** - 商业频道新闻
+13. **哈佛商业评论** - 管理与商业洞察
+14. **吴晓波频道** - 财经与商业内容
+15. **德林社** - 投资与财经评论
+16. **美股研究社** - 美股与科技公司资讯
+17. **中国日报·财经** - 财经新闻
+18. **商业-财富子频道** - 财富中文网商业子频道
+19. **喷嚏网·财经风云** - 财经热点聚合
 
 ## Data Collection Process
 

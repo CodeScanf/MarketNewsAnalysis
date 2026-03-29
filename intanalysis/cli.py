@@ -31,7 +31,7 @@ def main():
         run_demo()
     elif args.command == "ingest":
         if args.file:
-            with open(args.file) as f:
+            with open(args.file, "r", encoding="utf-8") as f:
                 articles = json.load(f)
             system = IntelligenceSystem()
             result = system.ingest(articles)
