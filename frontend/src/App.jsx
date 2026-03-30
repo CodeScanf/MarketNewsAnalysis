@@ -2,6 +2,21 @@ import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { queryNews, getChatHistory, deleteChat, clearChatHistory } from './api';
 
+const formatDuration = (value) => {
+  if (value == null) return '--';
+  if (value < 1000) return `${value.toFixed(1)} ms`;
+  return `${(value / 1000).toFixed(2)} s`;
+};
+
+const TIMING_LABELS = {
+  extract_entities_ms: 'Entity',
+  expand_query_ms: 'Expand',
+  search_ms: 'Search',
+  rerank_ms: 'Rerank',
+  entity_boost_ms: 'Boost',
+  answer_ms: 'LLM',
+};
+
 function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -50,7 +65,12 @@ function App() {
       const result = await queryNews(userMessage);
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: result.markdown_response },
+        {
+          role: 'assistant',
+          content: result.markdown_response,
+          timing: result.timing,
+          clientMs: result.client_ms,
+        },
       ]);
       // Refresh chat history after new query
       loadChatHistory();
@@ -101,7 +121,11 @@ function App() {
       });
     }
     
-    newMessages.push({ role: 'assistant', content: markdown });
+    newMessages.push({
+      role: 'assistant',
+      content: markdown,
+      timing: chat.timing || null,
+    });
     setMessages(newMessages);
   };
 
@@ -242,6 +266,24 @@ function App() {
                     {msg.role === 'user' ? '👤' : '🤖'}
                   </div>
                   <div className="message-content">
+                    {msg.role === 'assistant' && (msg.timing || msg.clientMs != null) && (
+                      <div className="timing-card">
+                        <div className="timing-summary">
+                          <span>Browser: {formatDuration(msg.clientMs)}</span>
+                          <span>Pipeline: {formatDuration(msg.timing?.pipeline_ms)}</span>
+                          <span>API: {formatDuration(msg.timing?.api_ms)}</span>
+                        </div>
+                        {msg.timing?.stages && Object.keys(msg.timing.stages).length > 0 && (
+                          <div className="timing-stages">
+                            {Object.entries(msg.timing.stages).map(([key, value]) => (
+                              <span key={key} className="timing-stage">
+                                {TIMING_LABELS[key] || key}: {formatDuration(value)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {msg.role === 'user' ? (
                       <p>{msg.content}</p>
                     ) : (

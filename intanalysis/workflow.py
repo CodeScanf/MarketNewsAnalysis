@@ -85,10 +85,10 @@ def query_node(state: PipelineState) -> PipelineState:
 
 
 # Routing functions
-def route_start(state: PipelineState) -> Literal["query", "ingestion"]:
+def route_start(state: PipelineState) -> Literal["query_step", "ingestion"]:
     """Route based on whether this is a query or ingestion."""
     if state.get("query") and state.get("vector_store"):
-        return "query"
+        return "query_step"
     return "ingestion"
 
 
@@ -124,10 +124,11 @@ def build_ingestion_graph() -> StateGraph:
 def build_query_graph() -> StateGraph:
     """Build the query processing graph."""
     graph = StateGraph(PipelineState)
-    
-    graph.add_node("query", query_node)
-    graph.set_entry_point("query")
-    graph.add_edge("query", END)
+
+    # LangGraph disallows node names that collide with state keys like "query".
+    graph.add_node("query_step", query_node)
+    graph.set_entry_point("query_step")
+    graph.add_edge("query_step", END)
     
     return graph.compile()
 
@@ -142,7 +143,7 @@ def build_full_graph() -> StateGraph:
     graph.add_node("entity_extraction", entity_extraction_node)
     graph.add_node("stock_impact", stock_impact_node)
     graph.add_node("storage", storage_node)
-    graph.add_node("query", query_node)
+    graph.add_node("query_step", query_node)
     
     # Entry point routing
     graph.set_conditional_entry_point(route_start)
@@ -155,6 +156,6 @@ def build_full_graph() -> StateGraph:
     graph.add_edge("storage", END)
     
     # Query path
-    graph.add_edge("query", END)
+    graph.add_edge("query_step", END)
     
     return graph.compile()

@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '/api';
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -10,8 +10,12 @@ const api = axios.create({
 });
 
 export const queryNews = async (query) => {
+  const started = performance.now();
   const response = await api.post('/query', { query });
-  return response.data;
+  return {
+    ...response.data,
+    client_ms: Number((performance.now() - started).toFixed(1)),
+  };
 };
 
 export const getChatHistory = async (limit = 50) => {

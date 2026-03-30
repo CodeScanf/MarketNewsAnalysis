@@ -9,6 +9,7 @@ from typing import Optional
 
 from intanalysis import IntelligenceSystem
 from intanalysis.models import Article, UniqueStory, QueryResult
+from text_cleaning import clean_text, combine_article_text
 
 
 def load_rss_feeds(file_path: str, limit: Optional[int] = None) -> list[dict]:
@@ -18,16 +19,11 @@ def load_rss_feeds(file_path: str, limit: Optional[int] = None) -> list[dict]:
     
     articles = []
     for item in data:
-        # Combine summary and content for full text
-        content = item.get("summary", "")
-        if item.get("content"):
-            content += "\n" + str(item["content"])
-        
         articles.append({
             "id": item.get("id", "")[:50],
-            "title": item.get("title", "Untitled"),
-            "content": content,
-            "source": item.get("source", "Unknown"),
+            "title": clean_text(item.get("title", "Untitled")),
+            "content": item.get("content_text") or combine_article_text(item.get("summary", ""), item.get("content")),
+            "source": clean_text(item.get("source", "Unknown")),
             "url": item.get("link", ""),
             "published_date": item.get("published"),
         })
@@ -243,5 +239,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 

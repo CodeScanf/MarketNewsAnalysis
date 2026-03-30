@@ -6,6 +6,8 @@ from enum import Enum
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
+from text_cleaning import clean_text, combine_article_text
+
 
 class EntityType(str, Enum):
     """Entity types extracted from articles."""
@@ -32,6 +34,10 @@ class Article(BaseModel):
     url: Optional[str] = None
 
     def __init__(self, **data):
+        data["title"] = clean_text(data.get("title", ""))
+        data["content"] = combine_article_text(data.get("content", ""), "")
+        if data.get("source") is not None:
+            data["source"] = clean_text(data.get("source"))
         super().__init__(**data)
         if not self.id:
             import hashlib
@@ -83,9 +89,17 @@ class UniqueStory(BaseModel):
         return len(self.duplicate_articles)
 
 
+class QueryTiming(BaseModel):
+    """Latency breakdown for a query."""
+    pipeline_ms: float = 0.0
+    api_ms: float = 0.0
+    stages: dict[str, float] = Field(default_factory=dict)
+
+
 class QueryResult(BaseModel):
     """Query response."""
     query: str
     stories: List[UniqueStory] = Field(default_factory=list)
     matched_entities: List[Entity] = Field(default_factory=list)
     explanation: Optional[str] = None
+    timing: QueryTiming = Field(default_factory=QueryTiming)

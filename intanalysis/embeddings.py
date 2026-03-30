@@ -1,12 +1,39 @@
 """Embedding and vector store services with hybrid search."""
 
-from typing import Optional, List, Tuple, Any
+from typing import Optional, List, Tuple
+import re
 import numpy as np
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from rank_bm25 import BM25Okapi
 import faiss
 
 from intanalysis.models import ProcessedArticle, UniqueStory
+
+
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
+_TOKEN_RE = re.compile(r"[\u4e00-\u9fff]+|[a-z0-9_.-]+")
+
+
+def tokenize_text(text: str) -> list[str]:
+    """Tokenize mixed Chinese/Latin text for BM25-friendly lexical matching."""
+    if not text:
+        return []
+
+    tokens: list[str] = []
+    for chunk in _TOKEN_RE.findall(text.lower()):
+        if _CJK_RE.fullmatch(chunk):
+            if len(chunk) == 1:
+                tokens.append(chunk)
+                continue
+
+            tokens.append(chunk)
+            tokens.extend(chunk[i : i + 2] for i in range(len(chunk) - 1))
+            if len(chunk) > 2:
+                tokens.extend(chunk[i : i + 3] for i in range(len(chunk) - 2))
+        else:
+            tokens.append(chunk)
+
+    return tokens
 
 
 class EmbeddingService:
@@ -79,7 +106,7 @@ class VectorStore:
         
         # Use HNSW for scalability, or FlatIP for small datasets
         if use_hnsw and dimension > 0:
-            self.index = faiss.IndexHNSWFlat(dimension, 32)  # M=32 connections
+            self.index = faiss.IndexHNSWFlat(dimension, 32, faiss.METRIC_INNER_PRODUCT)  # M=32 connections
             self.index.hnsw.efConstruction = 200
             self.index.hnsw.efSearch = 100
         else:
@@ -103,7 +130,7 @@ class VectorStore:
             self.index.add(arr)
             
             # Build BM25 index
-            tokenized = [text.split() for text in self._corpus_texts]
+            tokenized = [tokenize_text(text) for text in self._corpus_texts]
             self._bm25 = BM25Okapi(tokenized)
     
     def search(
@@ -131,7 +158,8 @@ class VectorStore:
         # BM25 search
         bm25_scores = np.zeros(len(self.stories))
         if self._bm25 and query_text:
-            bm25_raw = self._bm25.get_scores(query_text.lower().split())
+            query_tokens = tokenize_text(query_text)
+            bm25_raw = self._bm25.get_scores(query_tokens) if query_tokens else np.zeros(len(self.stories))
             if bm25_raw.max() > 0:
                 bm25_scores = bm25_raw / bm25_raw.max()  # Normalize
         
@@ -161,15 +189,3 @@ class VectorStore:
         self.stories.clear()
         self._corpus_texts.clear()
         self._bm25 = None
-        scores, indices = self.index.search(query, min(k, self.index.ntotal))
-        
-        results = []
-        for score, idx in zip(scores[0], indices[0]):
-            if idx >= 0 and idx < len(self.stories):
-                results.append((self.stories[idx], float(score)))
-        return results
-    
-    def clear(self) -> None:
-        """Clear the index."""
-        self.index = faiss.IndexFlatIP(self.dimension)
-        self.stories.clear()

@@ -56,6 +56,7 @@ class ChatHistoryManager:
                     stories_count INTEGER DEFAULT 0,
                     stories_json TEXT,
                     matched_entities_json TEXT,
+                    timing_json TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -63,6 +64,11 @@ class ChatHistoryManager:
             # Add markdown_response column if it doesn't exist (for existing DBs)
             try:
                 cursor.execute("ALTER TABLE chats ADD COLUMN markdown_response TEXT")
+            except Exception:
+                pass  # Column already exists
+
+            try:
+                cursor.execute("ALTER TABLE chats ADD COLUMN timing_json TEXT")
             except Exception:
                 pass  # Column already exists
             
@@ -78,7 +84,8 @@ class ChatHistoryManager:
         explanation: Optional[str],
         stories: list,
         matched_entities: list,
-        markdown_response: Optional[str] = None
+        markdown_response: Optional[str] = None,
+        timing: Optional[dict] = None
     ) -> int:
         """Save a chat query and response.
         
@@ -112,11 +119,12 @@ class ChatHistoryManager:
                 }
                 for e in matched_entities
             ])
+            timing_json = json.dumps(timing) if timing else None
             
             cursor.execute("""
-                INSERT INTO chats (query, explanation, markdown_response, stories_count, stories_json, matched_entities_json)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (query, explanation, markdown_response, len(stories), stories_json, entities_json))
+                INSERT INTO chats (query, explanation, markdown_response, stories_count, stories_json, matched_entities_json, timing_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (query, explanation, markdown_response, len(stories), stories_json, entities_json, timing_json))
             
             return cursor.lastrowid
     
@@ -133,7 +141,7 @@ class ChatHistoryManager:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT id, query, explanation, markdown_response, stories_count, stories_json, 
-                       matched_entities_json, created_at
+                       matched_entities_json, timing_json, created_at
                 FROM chats
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -149,6 +157,7 @@ class ChatHistoryManager:
                     "stories_count": row["stories_count"],
                     "stories": json.loads(row["stories_json"]) if row["stories_json"] else [],
                     "matched_entities": json.loads(row["matched_entities_json"]) if row["matched_entities_json"] else [],
+                    "timing": json.loads(row["timing_json"]) if row["timing_json"] else None,
                     "created_at": row["created_at"],
                 }
                 for row in rows
@@ -167,7 +176,7 @@ class ChatHistoryManager:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT id, query, explanation, markdown_response, stories_count, stories_json, 
-                       matched_entities_json, created_at
+                       matched_entities_json, timing_json, created_at
                 FROM chats
                 WHERE id = ?
             """, (chat_id,))
@@ -182,6 +191,7 @@ class ChatHistoryManager:
                     "stories_count": row["stories_count"],
                     "stories": json.loads(row["stories_json"]) if row["stories_json"] else [],
                     "matched_entities": json.loads(row["matched_entities_json"]) if row["matched_entities_json"] else [],
+                    "timing": json.loads(row["timing_json"]) if row["timing_json"] else None,
                     "created_at": row["created_at"],
                 }
             return None
@@ -200,7 +210,7 @@ class ChatHistoryManager:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT id, query, explanation, markdown_response, stories_count, stories_json, 
-                       matched_entities_json, created_at
+                       matched_entities_json, timing_json, created_at
                 FROM chats
                 WHERE query LIKE ?
                 ORDER BY created_at DESC
@@ -217,6 +227,7 @@ class ChatHistoryManager:
                     "stories_count": row["stories_count"],
                     "stories": json.loads(row["stories_json"]) if row["stories_json"] else [],
                     "matched_entities": json.loads(row["matched_entities_json"]) if row["matched_entities_json"] else [],
+                    "timing": json.loads(row["timing_json"]) if row["timing_json"] else None,
                     "created_at": row["created_at"],
                 }
                 for row in rows

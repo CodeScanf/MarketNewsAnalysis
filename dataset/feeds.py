@@ -5,6 +5,14 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Set
 import re
 import os
+import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from text_cleaning import clean_text, clean_html_text, combine_article_text
 
 
 class NewsRSSMonitor:
@@ -81,18 +89,22 @@ class NewsRSSMonitor:
                         continue
 
                 if article_id and article_id not in self.articals_loaded:
+                    raw_summary = entry.get("summary", "No summary")
+                    raw_content = entry.get("content", [])
                     article = {
                         "id": article_id,
-                        "title": entry.get("title", "No title"),
+                        "title": clean_text(entry.get("title", "No title")),
                         "link": article_id,
                         "published": entry.get("published", "Unknown date"),
                         "updated": entry.get("updated", ""),
-                        "summary": entry.get("summary", "No summary"),
-                        "content": entry.get("content", []),
-                        "author": entry.get("author", "Unknown"),
+                        "summary": raw_summary,
+                        "content": raw_content,
+                        "summary_text": clean_html_text(raw_summary),
+                        "content_text": combine_article_text(raw_summary, raw_content),
+                        "author": clean_text(entry.get("author", "Unknown")),
                         "tags": entry.get("tags", []),
                         "category": entry.get("category", ""),
-                        "source": source,
+                        "source": clean_text(source),
                         "feed_url": feed_url,
                         "fetched_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     }

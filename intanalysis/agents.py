@@ -11,17 +11,19 @@ Implements:
 
 from abc import ABC, abstractmethod
 from typing import Optional
+from time import perf_counter
+import re
 import uuid
 import numpy as np
 import spacy
 
 from intanalysis.models import (
     Article, Entity, EntityType, StockImpact, ImpactType,
-    ProcessedArticle, UniqueStory, QueryResult
+    ProcessedArticle, QueryTiming, UniqueStory, QueryResult
 )
 from intanalysis.mappings import (
     COMPANY_TO_STOCK, SECTOR_TO_COMPANIES, REGULATORS,
-    get_stock_symbol, get_companies_in_sector, get_sectors_for_company
+    find_stock_symbols, get_stock_symbol, get_companies_in_sector, get_sectors_for_company
 )
 from intanalysis.embeddings import EmbeddingService, VectorStore
 from intanalysis.llm import LLMService
@@ -72,9 +74,27 @@ class IngestionAgent(BaseAgent):
 class DeduplicationAgent(BaseAgent):
     """Clusters similar articles using semantic embeddings."""
     
-    def __init__(self, threshold: float = 0.60, verbose: bool = False):
+    DIGEST_TITLE_PATTERNS = (
+        r"^\d+点\d*氪",
+        r"早报",
+        r"晚报",
+        r"导览",
+        r"汇总",
+        r"合集",
+        r"要闻",
+    )
+
+    def __init__(
+        self,
+        threshold: float = 0.72,
+        title_threshold: float = 0.45,
+        strong_threshold: float = 0.84,
+        verbose: bool = False,
+    ):
         super().__init__(verbose)
         self.threshold = threshold
+        self.title_threshold = title_threshold
+        self.strong_threshold = strong_threshold
         self.embedder = EmbeddingService.get_instance()
     
     def process(self, state: dict) -> dict:
@@ -86,19 +106,22 @@ class DeduplicationAgent(BaseAgent):
         # Compute embeddings
         texts = [a.full_text for a in articles]
         embeddings = self.embedder.embed_batch(texts)
+        title_embeddings = self.embedder.embed_batch([a.title for a in articles])
         
         # Compute similarity matrix
         sim_matrix = np.dot(embeddings, embeddings.T)
+        title_sim_matrix = np.dot(title_embeddings, title_embeddings.T)
         
         # Cluster using Union-Find
-        clusters = self._cluster_articles(len(articles), sim_matrix)
+        clusters = self._cluster_articles(articles, sim_matrix, title_sim_matrix)
         
         # Build UniqueStory objects
         unique_stories = []
         processed_articles = []
         
         for cluster_id, indices in clusters.items():
-            primary_idx = indices[0]
+            primary_idx = self._select_primary_index(indices, articles, sim_matrix)
+            duplicate_indices = [idx for idx in indices if idx != primary_idx]
             
             primary = ProcessedArticle(
                 article=articles[primary_idx],
@@ -109,7 +132,7 @@ class DeduplicationAgent(BaseAgent):
             processed_articles.append(primary)
             
             duplicates = []
-            for idx in indices[1:]:
+            for idx in duplicate_indices:
                 dup = ProcessedArticle(
                     article=articles[idx],
                     embedding=embeddings[idx].tolist(),
@@ -131,8 +154,14 @@ class DeduplicationAgent(BaseAgent):
         state["processed_articles"] = processed_articles
         return state
     
-    def _cluster_articles(self, n: int, sim_matrix: np.ndarray) -> dict[str, list[int]]:
-        """Cluster articles using Union-Find based on similarity."""
+    def _cluster_articles(
+        self,
+        articles: list[Article],
+        sim_matrix: np.ndarray,
+        title_sim_matrix: np.ndarray,
+    ) -> dict[str, list[int]]:
+        """Cluster articles using guarded Union-Find based on similarity."""
+        n = len(articles)
         parent = list(range(n))
         
         def find(x: int) -> int:
@@ -148,7 +177,12 @@ class DeduplicationAgent(BaseAgent):
         # Union similar articles
         for i in range(n):
             for j in range(i + 1, n):
-                if sim_matrix[i, j] >= self.threshold:
+                if self._should_cluster(
+                    articles[i],
+                    articles[j],
+                    float(sim_matrix[i, j]),
+                    float(title_sim_matrix[i, j]),
+                ):
                     union(i, j)
         
         # Group by root
@@ -159,6 +193,78 @@ class DeduplicationAgent(BaseAgent):
         
         # Assign UUIDs to clusters
         return {str(uuid.uuid4()): indices for indices in clusters.values()}
+
+    def _should_cluster(
+        self,
+        article_a: Article,
+        article_b: Article,
+        full_similarity: float,
+        title_similarity: float,
+    ) -> bool:
+        """Decide whether two articles should be merged into one story."""
+        if article_a.url and article_b.url and article_a.url == article_b.url:
+            return True
+
+        title_a = self._normalize_title(article_a.title)
+        title_b = self._normalize_title(article_b.title)
+        if title_a and title_a == title_b:
+            return True
+
+        if full_similarity < self.threshold:
+            return False
+
+        digest_a = self._is_digest_title(article_a.title)
+        digest_b = self._is_digest_title(article_b.title)
+
+        # Round-up posts often mention many companies and should not absorb standalone stories.
+        if digest_a != digest_b:
+            return False
+
+        if title_similarity >= self.title_threshold:
+            return True
+
+        if full_similarity >= self.strong_threshold and self._lead_overlap(article_a.content, article_b.content):
+            return True
+
+        return False
+
+    def _select_primary_index(
+        self,
+        indices: list[int],
+        articles: list[Article],
+        sim_matrix: np.ndarray,
+    ) -> int:
+        """Choose the best representative article for a cluster."""
+        if len(indices) == 1:
+            return indices[0]
+
+        best_idx = indices[0]
+        best_score = float("-inf")
+
+        for idx in indices:
+            similarity_score = sum(float(sim_matrix[idx, other]) for other in indices if other != idx)
+            content_bonus = min(len(articles[idx].content), 4000) / 4000.0
+            digest_penalty = 1.0 if self._is_digest_title(articles[idx].title) else 0.0
+            score = similarity_score + (0.1 * content_bonus) - digest_penalty
+            if score > best_score:
+                best_idx = idx
+                best_score = score
+
+        return best_idx
+
+    def _normalize_title(self, title: str) -> str:
+        return re.sub(r"\s+", " ", (title or "").strip().lower())
+
+    def _is_digest_title(self, title: str) -> bool:
+        clean_title = title or ""
+        return any(re.search(pattern, clean_title, re.IGNORECASE) for pattern in self.DIGEST_TITLE_PATTERNS)
+
+    def _lead_overlap(self, content_a: str, content_b: str, limit: int = 180) -> bool:
+        lead_a = re.sub(r"\s+", " ", (content_a or "")[:limit]).strip()
+        lead_b = re.sub(r"\s+", " ", (content_b or "")[:limit]).strip()
+        if not lead_a or not lead_b:
+            return False
+        return lead_a in lead_b or lead_b in lead_a
 
 
 # =============================================================================
@@ -220,7 +326,8 @@ class EntityExtractionAgent(BaseAgent):
         
         # Rule-based: Known regulators
         for key, info in REGULATORS.items():
-            if key in text_lower or info["full_name"].lower() in text_lower:
+            aliases = info.get("aliases", [])
+            if key in text_lower or info["full_name"].lower() in text_lower or any(alias.lower() in text_lower for alias in aliases):
                 entities.append(Entity(name=info["full_name"], type=EntityType.REGULATOR, confidence=1.0))
         
         # spaCy NER for persons and orgs
@@ -412,18 +519,30 @@ class QueryAgent(BaseAgent):
         return self._reranker
     
     def process(self, state: dict) -> dict:
+        process_started = perf_counter()
+        step_timings: dict[str, float] = {}
+
         query = state.get("query", "")
         if not query:
             return state
         
         vector_store: VectorStore = state.get("vector_store")
         if not vector_store:
-            state["query_result"] = QueryResult(query=query, explanation="No articles indexed yet")
+            state["query_result"] = QueryResult(
+                query=query,
+                explanation="No articles indexed yet",
+                timing=QueryTiming(
+                    pipeline_ms=round((perf_counter() - process_started) * 1000, 1),
+                    stages=step_timings,
+                ),
+            )
             return state
         
         # Step 1: Extract query entities
         self.log("Step 1: Extracting entities from query...")
+        step_started = perf_counter()
         query_entities = self._extract_query_entities(query)
+        step_timings["extract_entities_ms"] = round((perf_counter() - step_started) * 1000, 1)
         if query_entities:
             self.log(f"   Found entities: {[e['name'] for e in query_entities]}")
         else:
@@ -431,11 +550,14 @@ class QueryAgent(BaseAgent):
         
         # Step 2: Expand query with related terms
         self.log("Step 2: Expanding query with related terms...")
+        step_started = perf_counter()
         expanded_query = self._expand_query(query, query_entities)
+        step_timings["expand_query_ms"] = round((perf_counter() - step_started) * 1000, 1)
         self.log(f"   Expanded: \"{expanded_query[:80]}...\"" if len(expanded_query) > 80 else f"   Expanded: \"{expanded_query}\"")
         
         # Step 3: Hybrid search (dense + BM25)
         self.log("Step 3: Running hybrid search (70% dense + 30% BM25)...")
+        step_started = perf_counter()
         query_embedding = self.embedder.embed(expanded_query)
         results = vector_store.search(
             query_embedding, 
@@ -443,25 +565,32 @@ class QueryAgent(BaseAgent):
             k=20,  # Get more candidates for re-ranking
             alpha=0.7  # 70% dense, 30% BM25
         )
+        step_timings["search_ms"] = round((perf_counter() - step_started) * 1000, 1)
         self.log(f"   Retrieved {len(results)} candidates")
         
         # Step 4: Re-rank with cross-encoder
         if self.reranker and len(results) > 5:
             self.log("Step 4: Re-ranking with cross-encoder...")
+            step_started = perf_counter()
             results = self.reranker.rerank(query, results, top_k=10)
+            step_timings["rerank_ms"] = round((perf_counter() - step_started) * 1000, 1)
             self.log(f"   Re-ranked to top {len(results)} results")
         else:
+            step_timings["rerank_ms"] = 0.0
             self.log("Step 4: Skipping re-ranking (small result set)")
         
         # Step 5: Boost by entity match
         self.log("Step 5: Applying entity-based boosting...")
+        step_started = perf_counter()
         filtered_results = self._filter_by_entities(results, query_entities)
+        step_timings["entity_boost_ms"] = round((perf_counter() - step_started) * 1000, 1)
         
         # Limit to top 10 results for LLM evaluation
         top_results = filtered_results[:10]
         
         # Step 6: Generate intelligent answer and filter relevant results
         self.log("Step 6: Generating AI answer and filtering relevant sources...")
+        step_started = perf_counter()
         explanation = None
         final_results = []
         if self.llm and top_results:
@@ -495,15 +624,21 @@ class QueryAgent(BaseAgent):
                 final_results = top_results[:5]
         else:
             final_results = top_results[:5]
+        step_timings["answer_ms"] = round((perf_counter() - step_started) * 1000, 1)
 
         # Determine final entities based on whether we have relevant results
         final_entities = query_entities if final_results else []
+        pipeline_ms = round((perf_counter() - process_started) * 1000, 1)
 
         state["query_result"] = QueryResult(
             query=query,
             stories=[s for s, _ in final_results],
             matched_entities=[Entity(name=e["name"], type=e["type"]) for e in final_entities],
-            explanation=explanation
+            explanation=explanation,
+            timing=QueryTiming(
+                pipeline_ms=pipeline_ms,
+                stages=step_timings,
+            ),
         )
 
         self.log(f"Query '{query}' returned {len(final_results)} results")
@@ -515,21 +650,36 @@ class QueryAgent(BaseAgent):
         query_lower = query.lower()
         
         # Check companies
-        result = get_stock_symbol(query_lower)
-        if result:
-            symbol, name, _ = result
+        for symbol, name, _ in find_stock_symbols(query_lower):
             entities.append({"name": name, "type": EntityType.COMPANY, "symbol": symbol})
         
         # Check regulators
         for key, info in REGULATORS.items():
-            if key in query_lower or info["full_name"].lower() in query_lower:
+            aliases = info.get("aliases", [])
+            if key in query_lower or info["full_name"].lower() in query_lower or any(alias.lower() in query_lower for alias in aliases):
                 entities.append({"name": info["full_name"], "type": EntityType.REGULATOR})
                 break
         
         # Check sectors
         sector_keywords = {
-            "banking": "Banking", "bank": "Banking", "aviation": "Aviation",
-            "it": "IT", "tech": "IT", "auto": "Automobile", "automobile": "Automobile"
+            "banking": "Banking",
+            "bank": "Banking",
+            "银行": "Chinese Banking",
+            "aviation": "Aviation",
+            "航空": "Aviation",
+            "it": "IT",
+            "tech": "IT",
+            "科技": "Internet",
+            "互联网": "Internet",
+            "电商": "E-Commerce",
+            "零售": "Consumer",
+            "消费": "Consumer",
+            "auto": "Automobile",
+            "automobile": "Automobile",
+            "汽车": "EV",
+            "新能源车": "EV",
+            "电动车": "EV",
+            "家电": "Home Appliances"
         }
         for keyword, sector in sector_keywords.items():
             if keyword in query_lower:
@@ -571,10 +721,30 @@ class QueryAgent(BaseAgent):
             boost = 0
             article_entities = {e.name.lower() for e in story.primary_article.entities}
             article_sectors = set(story.primary_article.sectors)
+            title_text = story.primary_article.article.title.lower()
+            content_text = story.primary_article.article.content.lower()
+            impact_symbols = {impact.symbol for impact in story.primary_article.stock_impacts}
             
             for qe in query_entities:
-                if qe["type"] == EntityType.COMPANY and qe["name"].lower() in article_entities:
-                    boost += 0.3
+                if qe["type"] == EntityType.COMPANY:
+                    query_terms = {qe["name"].lower()}
+                    symbol = qe.get("symbol")
+                    if symbol:
+                        for _, (company_symbol, company_name, aliases) in COMPANY_TO_STOCK.items():
+                            if company_symbol == symbol:
+                                query_terms.add(company_name.lower())
+                                query_terms.update(alias.lower() for alias in aliases)
+                                break
+
+                    if any(term in title_text for term in query_terms):
+                        boost += 0.9
+                    elif any(term in content_text for term in query_terms):
+                        boost += 0.25
+                    elif qe["name"].lower() in article_entities:
+                        boost += 0.15
+
+                    if symbol and symbol in impact_symbols:
+                        boost += 0.15
                 elif qe["type"] == EntityType.SECTOR and qe["name"] in article_sectors:
                     boost += 0.2
                 elif qe["type"] == EntityType.REGULATOR and qe["name"].lower() in article_entities:

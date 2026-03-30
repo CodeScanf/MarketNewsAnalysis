@@ -6,9 +6,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import json
+from time import perf_counter
 
 from intanalysis import IntelligenceSystem, Article
 from intanalysis.chat_history import ChatHistoryManager
+from intanalysis.models import QueryTiming
 
 
 def _configure_console_encoding() -> None:
@@ -114,6 +116,7 @@ class QueryResponse(BaseModel):
     matched_entities: List[EntityResponse]
     explanation: Optional[str]
     markdown_response: str
+    timing: QueryTiming
 
 
 class StatsResponse(BaseModel):
@@ -290,6 +293,7 @@ async def query_system(request: QueryRequest):
     - Thematic queries: "Interest rate impact" → Semantic matching
     """
     try:
+        request_started = perf_counter()
         result = system.query(request.query)
         
         stories = [story_to_response(story) for story in result.stories]
@@ -299,6 +303,7 @@ async def query_system(request: QueryRequest):
         ]
         
         markdown = format_query_as_markdown(request.query, stories, result.explanation)
+        result.timing.api_ms = round((perf_counter() - request_started) * 1000, 1)
         
         # Save chat to history
         try:
@@ -307,7 +312,8 @@ async def query_system(request: QueryRequest):
                 explanation=result.explanation,
                 stories=stories,
                 matched_entities=entities,
-                markdown_response=markdown
+                markdown_response=markdown,
+                timing=result.timing.model_dump(),
             )
         except Exception:
             pass  # Don't fail the query if history save fails
@@ -318,6 +324,7 @@ async def query_system(request: QueryRequest):
             matched_entities=entities,
             explanation=result.explanation,
             markdown_response=markdown,
+            timing=result.timing,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

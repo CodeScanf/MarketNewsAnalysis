@@ -7,7 +7,7 @@ from typing import Optional, Set
 import hashlib
 
 from intanalysis.models import UniqueStory
-from intanalysis.embeddings import VectorStore
+from intanalysis.embeddings import VectorStore, tokenize_text
 
 
 class PersistenceManager:
@@ -136,7 +136,7 @@ class PersistenceManager:
             # Rebuild BM25 index
             if vector_store._corpus_texts:
                 from rank_bm25 import BM25Okapi
-                tokenized = [text.split() for text in vector_store._corpus_texts]
+                tokenized = [tokenize_text(text) for text in vector_store._corpus_texts]
                 vector_store._bm25 = BM25Okapi(tokenized)
             
             return vector_store

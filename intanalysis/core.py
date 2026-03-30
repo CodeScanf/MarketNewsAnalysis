@@ -2,9 +2,13 @@
 
 import sys
 from typing import Optional
+from time import perf_counter
 from dotenv import load_dotenv
 
-from intanalysis.models import Article, QueryResult, UniqueStory
+# Load .env before importing modules that may read HF-related env vars at import time.
+load_dotenv()
+
+from intanalysis.models import Article, QueryResult, QueryTiming, UniqueStory
 from intanalysis.embeddings import VectorStore, EmbeddingService
 from intanalysis.workflow import build_ingestion_graph, build_query_graph, PipelineState
 from intanalysis.persistence import PersistenceManager
@@ -183,8 +187,12 @@ class IntelligenceSystem:
             "errors": [],
         }
         
+        query_started = perf_counter()
         result = self.query_graph.invoke(initial_state)
         query_result = result.get("query_result", QueryResult(query=query_text))
+        if query_result.timing is None:
+            query_result.timing = QueryTiming()
+        query_result.timing.pipeline_ms = round((perf_counter() - query_started) * 1000, 1)
         
         if self.verbose:
             print(f"\n📊 RESULTS: {len(query_result.stories)} stories found")
