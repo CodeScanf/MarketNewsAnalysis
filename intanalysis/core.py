@@ -1,17 +1,22 @@
 """Core IntelligenceSystem - main interface for the package."""
 
+import json
 import sys
 from typing import Optional
 from time import perf_counter
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Load .env before importing modules that may read HF-related env vars at import time.
 load_dotenv()
 
-from intanalysis.models import Article, QueryResult, QueryTiming, UniqueStory
+from intanalysis.models import Article, QueryIntent, QueryResult, QueryTiming, UniqueStory
 from intanalysis.embeddings import VectorStore, EmbeddingService
 from intanalysis.workflow import build_ingestion_graph, build_query_graph, PipelineState
 from intanalysis.persistence import PersistenceManager
+from intanalysis.intent import IntentClassifier
+from intanalysis.llm import LLMService
+from text_cleaning import clean_text, combine_article_text
 
 
 def _configure_console_encoding() -> None:
@@ -62,6 +67,8 @@ class IntelligenceSystem:
         self._vector_store: Optional[VectorStore] = None
         self._ingestion_graph = None
         self._query_graph = None
+        self._intent_classifier: Optional[IntentClassifier] = None
+        self._llm: Optional[LLMService] = None
     
     @property
     def vector_store(self) -> VectorStore:
@@ -89,6 +96,23 @@ class IntelligenceSystem:
         if self._query_graph is None:
             self._query_graph = build_query_graph()
         return self._query_graph
+
+    @property
+    def intent_classifier(self) -> IntentClassifier:
+        """Get or create the intent classifier."""
+        if self._intent_classifier is None:
+            self._intent_classifier = IntentClassifier()
+        return self._intent_classifier
+
+    @property
+    def llm(self) -> Optional[LLMService]:
+        """Get optional LLM service."""
+        if self._llm is None:
+            try:
+                self._llm = LLMService.get_instance()
+            except Exception:
+                self._llm = None
+        return self._llm
     
     def ingest(self, articles: list[dict | Article], force: bool = False) -> dict:
         """
@@ -201,6 +225,163 @@ class IntelligenceSystem:
             print(f"{'='*60}\n")
         
         return query_result
+
+    def handle_user_query(self, query_text: str, show_steps: bool = True) -> QueryResult:
+        """Classify intent and dispatch to the appropriate handling path."""
+        total_started = perf_counter()
+        classify_started = perf_counter()
+        decision = self.intent_classifier.classify(query_text)
+        classify_ms = round((perf_counter() - classify_started) * 1000, 1)
+
+        if self.verbose and show_steps:
+            print(f"\n🧭 Intent: {decision.intent.value} ({decision.source}, {decision.confidence:.0%})")
+            if decision.reason:
+                print(f"   Reason: {decision.reason}")
+
+        if decision.intent == QueryIntent.NEWS_UPDATE:
+            result = self._handle_news_refresh(query_text)
+        elif decision.intent == QueryIntent.GENERAL_CHAT:
+            result = self._handle_general_chat(query_text)
+        else:
+            result = self.query(query_text, show_steps=show_steps)
+
+        if result.timing is None:
+            result.timing = QueryTiming()
+        result.intent = decision.intent
+        result.intent_source = decision.source
+        result.intent_reason = decision.reason
+        result.timing.stages = {"intent_classify_ms": classify_ms, **result.timing.stages}
+        result.timing.pipeline_ms = round((perf_counter() - total_started) * 1000, 1)
+        return result
+
+    def _handle_general_chat(self, query_text: str) -> QueryResult:
+        """Handle non-financial general chat directly with the LLM."""
+        started = perf_counter()
+        stages: dict[str, float] = {}
+
+        llm_started = perf_counter()
+        answer = None
+        if self.llm is not None:
+            try:
+                answer = self.llm.answer_general_query(query_text)
+            except Exception:
+                answer = None
+        stages["general_llm_ms"] = round((perf_counter() - llm_started) * 1000, 1)
+
+        if not answer:
+            answer = "当前没有可用的大模型服务来处理通识问答，请稍后再试，或补充更明确的金融新闻问题。"
+
+        return QueryResult(
+            query=query_text,
+            intent=QueryIntent.GENERAL_CHAT,
+            intent_source="direct",
+            intent_reason="Handled as a general conversation query.",
+            explanation=answer,
+            timing=QueryTiming(
+                pipeline_ms=round((perf_counter() - started) * 1000, 1),
+                stages=stages,
+            ),
+        )
+
+    def _handle_news_refresh(self, query_text: str) -> QueryResult:
+        """Refresh RSS feeds and sync any dataset articles that are not yet indexed."""
+        from dataset.feeds import NewsRSSMonitor
+
+        started = perf_counter()
+        stages: dict[str, float] = {}
+
+        refresh_started = perf_counter()
+        monitor = NewsRSSMonitor(check_interval=300)
+        fetched_articles = monitor.check_all_feeds()
+        monitor.save_articals_loaded()
+        stages["refresh_feeds_ms"] = round((perf_counter() - refresh_started) * 1000, 1)
+
+        persist_started = perf_counter()
+        if fetched_articles:
+            self._append_fetched_articles(fetched_articles)
+        stages["refresh_persist_ms"] = round((perf_counter() - persist_started) * 1000, 1)
+
+        scan_started = perf_counter()
+        dataset_articles = self._load_rss_dataset_articles()
+        pending_articles, _ = self.persistence.filter_new_articles(dataset_articles)
+        stages["refresh_dataset_scan_ms"] = round((perf_counter() - scan_started) * 1000, 1)
+
+        ingest_started = perf_counter()
+        ingest_result = {
+            "unique_stories": [],
+            "total_articles": 0,
+            "unique_count": 0,
+            "duplicate_count": 0,
+            "skipped_count": 0,
+        }
+        if pending_articles:
+            ingest_result = self.ingest(pending_articles, force=True)
+        stages["refresh_ingest_ms"] = round((perf_counter() - ingest_started) * 1000, 1)
+
+        pending_count = len(pending_articles)
+        total_dataset = len(dataset_articles)
+        fetched_count = len(fetched_articles)
+
+        if fetched_count or pending_count:
+            explanation = (
+                f"已检查 {len(monitor.feed_configs)} 个 RSS 源，拉取到 {fetched_count} 篇新文章。"
+                f" 当前 RSS 数据集共有 {total_dataset} 篇文章，其中 {pending_count} 篇此前尚未入库，"
+                f"本次新增 {ingest_result['unique_count']} 条主 story，识别出 {ingest_result['duplicate_count']} 篇重复内容。"
+            )
+        else:
+            explanation = (
+                f"已检查 {len(monitor.feed_configs)} 个 RSS 源，当前没有发现新的文章。"
+                f" 本地 RSS 数据集共 {total_dataset} 篇，已全部完成入库同步。"
+            )
+
+        return QueryResult(
+            query=query_text,
+            intent=QueryIntent.NEWS_UPDATE,
+            intent_source="direct",
+            intent_reason="Handled as a news refresh request.",
+            stories=ingest_result.get("unique_stories", []),
+            explanation=explanation,
+            timing=QueryTiming(
+                pipeline_ms=round((perf_counter() - started) * 1000, 1),
+                stages=stages,
+            ),
+        )
+
+    def _append_fetched_articles(self, new_articles: list[dict]) -> None:
+        """Append fetched raw feed entries to the RSS dataset file."""
+        dataset_file = Path(self.persistence.storage_dir) / "rss_feeds_all.json"
+        existing: list[dict] = []
+        if dataset_file.exists():
+            with dataset_file.open("r", encoding="utf-8") as f:
+                existing = json.load(f)
+        existing.extend(new_articles)
+        with dataset_file.open("w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2, ensure_ascii=False)
+
+    def _load_rss_dataset_articles(self) -> list[dict]:
+        """Load the persisted RSS dataset and convert it into ingestion-ready articles."""
+        dataset_file = Path(self.persistence.storage_dir) / "rss_feeds_all.json"
+        if not dataset_file.exists():
+            return []
+
+        with dataset_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        return self._convert_feed_entries_to_articles(data)
+
+    def _convert_feed_entries_to_articles(self, items: list[dict]) -> list[dict]:
+        """Convert raw feed entries to ingestion-ready article dicts."""
+        articles = []
+        for item in items:
+            articles.append({
+                "id": item.get("id", "")[:50],
+                "title": clean_text(item.get("title", "Untitled")),
+                "content": item.get("content_text") or combine_article_text(item.get("summary", ""), item.get("content")),
+                "source": clean_text(item.get("source", "Unknown")),
+                "url": item.get("link", ""),
+                "published_date": item.get("published"),
+            })
+        return articles
     
     def get_stats(self) -> dict:
         """Get system statistics."""

@@ -1,0 +1,38 @@
+Intent Routing Evaluation
+================================================================================
+Examples: 60
+Correct:  58
+Accuracy: 96.67%
+Macro F1: 96.66%
+
+Per-Class Metrics
+--------------------------------------------------------------------------------
+general_chat     support= 20  precision=100.00%  recall=90.00%  f1=94.74%
+news_update      support= 20  precision=100.00%  recall=100.00%  f1=100.00%
+financial_query  support= 20  precision=90.91%  recall=100.00%  f1=95.24%
+
+Accuracy by Difficulty
+--------------------------------------------------------------------------------
+easy     count= 33  accuracy=96.97%
+hard     count=  6  accuracy=83.33%
+medium   count= 21  accuracy=100.00%
+
+Confusion Matrix
+--------------------------------------------------------------------------------
+expected \ predicted  general_chat      news_update       financial_query   
+general_chat          18                0                 2                 
+news_update           0                 20                0                 
+financial_query       0                 0                 20                
+
+First 2 Errors
+--------------------------------------------------------------------------------
+[g008] expected=general_chat predicted=financial_query source=rule
+query: 帮我把这句话翻译成英文：泡泡玛特主动降温
+reason: Matched known company or ticker alias.
+note: Translation request should bypass retrieval.
+
+[g012] expected=general_chat predicted=financial_query source=rule
+query: 什么叫股票回购
+reason: Matched multiple finance or sector keywords.
+note: Finance vocabulary explanation.
+

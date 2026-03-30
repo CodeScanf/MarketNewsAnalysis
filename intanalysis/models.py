@@ -24,6 +24,13 @@ class ImpactType(str, Enum):
     REGULATORY = "regulatory"  # Regulatory impact (variable)
 
 
+class QueryIntent(str, Enum):
+    """High-level user intent routing."""
+    GENERAL_CHAT = "general_chat"
+    NEWS_UPDATE = "news_update"
+    FINANCIAL_QUERY = "financial_query"
+
+
 class Article(BaseModel):
     """Raw news article."""
     id: str = Field(default_factory=lambda: "")
@@ -96,9 +103,20 @@ class QueryTiming(BaseModel):
     stages: dict[str, float] = Field(default_factory=dict)
 
 
+class IntentDecision(BaseModel):
+    """Result of intent classification."""
+    intent: QueryIntent
+    source: str = "rule"
+    confidence: float = 0.0
+    reason: str = ""
+
+
 class QueryResult(BaseModel):
     """Query response."""
     query: str
+    intent: QueryIntent = QueryIntent.FINANCIAL_QUERY
+    intent_source: str = "pipeline"
+    intent_reason: str = ""
     stories: List[UniqueStory] = Field(default_factory=list)
     matched_entities: List[Entity] = Field(default_factory=list)
     explanation: Optional[str] = None

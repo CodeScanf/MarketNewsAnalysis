@@ -86,6 +86,7 @@ def print_query_result(result: QueryResult, verbose: bool = True):
     print(f"🔍 QUERY RESULTS")
     print(f"{'='*60}")
     print(f"   Query: \"{result.query}\"")
+    print(f"   Route: {result.intent.value}")
     print(f"   Results: {len(result.stories)} stories found")
     
     if result.matched_entities:
@@ -149,13 +150,11 @@ def interactive_loop(system: IntelligenceSystem):
             if query.lower() == 'help':
                 print("""
 📚 HELP - Query Examples:
-   • "HDFC Bank news" - Company-specific search
-   • "Banking sector update" - Sector-wide search
-   • "RBI policy" - Regulator-specific search
-   • "Stock market rally" - Topic search
-   • "IndiGo DGCA" - Multi-entity search
-   • "IPO surge" - Event-based search
-   
+   • "泡泡玛特的股票能买吗？" - 走金融知识库检索
+   • "最近港股消费板块怎么样？" - 走行业新闻检索
+   • "更新一下新闻" - 触发 RSS 更新与入库
+   • "帮我解释一下什么是通货膨胀" - 走通识问答
+ 
 🔧 Commands:
    • stats - Show system statistics
    • verbose on/off - Toggle detailed output
@@ -167,7 +166,7 @@ def interactive_loop(system: IntelligenceSystem):
             
             # Process query
             print(f"\n⏳ Processing query...")
-            result = system.query(query)
+            result = system.handle_user_query(query)
             print_query_result(result, verbose=verbose)
             
         except KeyboardInterrupt:
@@ -239,4 +238,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

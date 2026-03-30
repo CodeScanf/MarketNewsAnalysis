@@ -8,6 +8,8 @@ from pathlib import Path
 
 from openai import OpenAI
 
+from intanalysis.models import IntentDecision, QueryIntent
+
 # Load .env file from project root or parent directories
 def _load_env():
     """Load .env file from current or parent directories."""
@@ -137,6 +139,45 @@ For each impacted stock, provide:
 Return JSON array of impacted stocks."""
 
         return self.extract_json(prompt, "You are a financial market analyst.")
+
+    def classify_intent(self, query: str) -> IntentDecision:
+        """Classify user intent for routing."""
+        prompt = f"""Classify the user's intent into exactly one of these labels:
+- general_chat: everyday conversation or broad non-financial questions
+- general_chat: also use this for concept explanations, definitions, product-help, or casual assistance that should be answered directly instead of searching the news knowledge base
+- news_update: requests to refresh, sync, update, or fetch news/articles/feeds
+- financial_query: questions that should use the financial news knowledge base
+
+Choose financial_query only when the user is clearly asking about companies, tickers, market developments, sector news, or finance/news evidence from the knowledge base.
+
+User query:
+{query}
+
+Return JSON only:
+{{"intent": "general_chat|news_update|financial_query", "confidence": 0.0, "reason": "short explanation"}}"""
+
+        data = self.extract_json(prompt, "You are an intent router for a financial news assistant.")
+        intent_value = data.get("intent", QueryIntent.GENERAL_CHAT.value)
+        try:
+            intent = QueryIntent(intent_value)
+        except Exception:
+            intent = QueryIntent.GENERAL_CHAT
+
+        return IntentDecision(
+            intent=intent,
+            source="llm",
+            confidence=float(data.get("confidence", 0.6)),
+            reason=str(data.get("reason", "")).strip(),
+        )
+
+    def answer_general_query(self, query: str) -> str:
+        """Answer non-financial general queries directly."""
+        system = (
+            "You are a helpful assistant inside a financial news product. "
+            "For non-financial general questions, answer directly, clearly, and in Chinese unless the user asks otherwise. "
+            "Do not mention internal routing."
+        )
+        return self.generate(query, system=system, max_tokens=600)
     
     def explain_query_results(self, query: str, results: list[dict]) -> dict:
         """Generate intelligent answer to query using article content.

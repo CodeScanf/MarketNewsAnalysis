@@ -1,0 +1,215 @@
+{
+  "version": 1,
+  "description": "RSS feed source registry for the MarketNewsAnalysis dataset pipeline.",
+  "feeds": [
+    {
+      "name": "叶檀财经",
+      "url": "https://plink.anyfeeder.com/weixin/tancaijing",
+      "category": "commentary",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "weixin",
+      "enabled": true,
+      "priority": 3,
+      "tags": ["macro", "commentary", "market"]
+    },
+    {
+      "name": "华尔街见闻",
+      "url": "https://plink.anyfeeder.com/weixin/wallstreetcn",
+      "category": "market_news",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "weixin",
+      "enabled": true,
+      "priority": 5,
+      "tags": ["macro", "market", "global"]
+    },
+    {
+      "name": "财新网",
+      "url": "https://plink.anyfeeder.com/weixin/caix",
+      "category": "finance_news",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "weixin",
+      "enabled": true,
+      "priority": 5,
+      "tags": ["policy", "finance", "investigation"]
+    },
+    {
+      "name": "第一财经周刊",
+      "url": "https://plink.anyfeeder.com/weixin/CBNweekly",
+      "category": "business_news",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "weixin",
+      "enabled": true,
+      "priority": 4,
+      "tags": ["business", "consumer"]
+    },
+    {
+      "name": "经济观察网",
+      "url": "https://plink.anyfeeder.com/eeo",
+      "category": "macro_news",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "media",
+      "enabled": true,
+      "priority": 4,
+      "tags": ["macro", "policy", "economy"]
+    },
+    {
+      "name": "财富中文网",
+      "url": "https://plink.anyfeeder.com/fortunechina",
+      "category": "business_news",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "media",
+      "enabled": true,
+      "priority": 4,
+      "tags": ["business", "company"]
+    },
+    {
+      "name": "路透中文",
+      "url": "https://plink.anyfeeder.com/reuters/cn",
+      "category": "wire_news",
+      "region": "GLOBAL",
+      "language": "zh-CN",
+      "source_type": "wire",
+      "enabled": true,
+      "priority": 5,
+      "tags": ["macro", "market", "global"]
+    },
+    {
+      "name": "雪球热门话题",
+      "url": "https://plink.anyfeeder.com/xueqiu/hot",
+      "category": "community_hot",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "community",
+      "enabled": true,
+      "priority": 2,
+      "tags": ["community", "retail_investor"]
+    },
+    {
+      "name": "36氪",
+      "url": "https://plink.anyfeeder.com/36kr",
+      "category": "tech_business",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "media",
+      "enabled": true,
+      "priority": 4,
+      "tags": ["startup", "ai", "tech"]
+    },
+    {
+      "name": "虎嗅",
+      "url": "https://plink.anyfeeder.com/weixin/huxiu",
+      "category": "tech_business",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "weixin",
+      "enabled": true,
+      "priority": 4,
+      "tags": ["tech", "industry"]
+    },
+    {
+      "name": "钛媒体",
+      "url": "https://plink.anyfeeder.com/tmtpost",
+      "category": "tech_business",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "media",
+      "enabled": true,
+      "priority": 4,
+      "tags": ["tech", "capital_market"]
+    },
+    {
+      "name": "界面新闻",
+      "url": "https://plink.anyfeeder.com/jiemian/business",
+      "category": "business_news",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "media",
+      "enabled": true,
+      "priority": 4,
+      "tags": ["business", "market"]
+    },
+    {
+      "name": "哈佛商业评论",
+      "url": "https://plink.anyfeeder.com/weixin/hbrchina",
+      "category": "management",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "weixin",
+      "enabled": true,
+      "priority": 2,
+      "tags": ["management", "strategy"]
+    },
+    {
+      "name": "吴晓波频道",
+      "url": "https://plink.anyfeeder.com/weixin/wuxiaobo",
+      "category": "commentary",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "weixin",
+      "enabled": true,
+      "priority": 2,
+      "tags": ["business", "commentary"]
+    },
+    {
+      "name": "德林社",
+      "url": "https://plink.anyfeeder.com/weixin/delin",
+      "category": "market_commentary",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "weixin",
+      "enabled": true,
+      "priority": 2,
+      "tags": ["market", "commentary"]
+    },
+    {
+      "name": "美股研究社",
+      "url": "https://plink.anyfeeder.com/weixin/meigu",
+      "category": "us_market",
+      "region": "US",
+      "language": "zh-CN",
+      "source_type": "weixin",
+      "enabled": true,
+      "priority": 3,
+      "tags": ["us_stock", "earnings"]
+    },
+    {
+      "name": "中国日报·财经",
+      "url": "https://plink.anyfeeder.com/chinadaily/business",
+      "category": "business_news",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "media",
+      "enabled": true,
+      "priority": 3,
+      "tags": ["economy", "business"]
+    },
+    {
+      "name": "商业-财富子频道",
+      "url": "https://plink.anyfeeder.com/fortunechina/business",
+      "category": "business_news",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "media",
+      "enabled": true,
+      "priority": 3,
+      "tags": ["business", "subchannel"]
+    },
+    {
+      "name": "喷嚏网·财经风云",
+      "url": "https://plink.anyfeeder.com/dapenti/cai",
+      "category": "market_digest",
+      "region": "CN",
+      "language": "zh-CN",
+      "source_type": "media",
+      "enabled": true,
+      "priority": 2,
+      "tags": ["digest", "market"]
+    }
+  ]
+}

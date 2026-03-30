@@ -1,37 +1,27 @@
 import feedparser
 from typing import List, Dict
 import re
+import sys
+from pathlib import Path
+
+DATASET_DIR = Path(__file__).resolve().parent
+if str(DATASET_DIR) not in sys.path:
+    sys.path.insert(0, str(DATASET_DIR))
+
+from feed_config import DEFAULT_FEED_CONFIG_PATH, load_feed_configs
 
 
 class NewsRSSFetcher:
     """Fetch news articles from various RSS feeds"""
 
-    def __init__(self):
-        # Configured Chinese finance, business, and tech RSS feeds
-        self.feeds = {
-            "叶檀财经": "https://plink.anyfeeder.com/weixin/tancaijing",
-            "华尔街见闻": "https://plink.anyfeeder.com/weixin/wallstreetcn",
-            "财新网": "https://plink.anyfeeder.com/weixin/caix",
-            "第一财经周刊": "https://plink.anyfeeder.com/weixin/CBNweekly",
-            "经济观察网": "https://plink.anyfeeder.com/eeo",
-            "财富中文网": "https://plink.anyfeeder.com/fortunechina",
-            "路透中文": "https://plink.anyfeeder.com/reuters/cn",
-            "雪球热门话题": "https://plink.anyfeeder.com/xueqiu/hot",
-            "36氪": "https://plink.anyfeeder.com/36kr",
-            "虎嗅": "https://plink.anyfeeder.com/weixin/huxiu",
-            "钛媒体": "https://plink.anyfeeder.com/tmtpost",
-            "界面新闻": "https://plink.anyfeeder.com/jiemian/business",
-            "哈佛商业评论": "https://plink.anyfeeder.com/weixin/hbrchina",
-            "吴晓波频道": "https://plink.anyfeeder.com/weixin/wuxiaobo",
-            "德林社": "https://plink.anyfeeder.com/weixin/delin",
-            "美股研究社": "https://plink.anyfeeder.com/weixin/meigu",
-            "中国日报·财经": "https://plink.anyfeeder.com/chinadaily/business",
-            "商业-财富子频道": "https://plink.anyfeeder.com/fortunechina/business",
-            "喷嚏网·财经风云": "https://plink.anyfeeder.com/dapenti/cai",
-        }
+    def __init__(self, feed_config_path: str | None = None):
+        self.feed_config_path = feed_config_path or str(DEFAULT_FEED_CONFIG_PATH)
+        self.feed_configs = load_feed_configs(self.feed_config_path)
+        self.feeds = {feed["name"]: feed["url"] for feed in self.feed_configs}
 
-    def fetch_feed(self, feed_url: str) -> List[Dict]:
+    def fetch_feed(self, feed_config: Dict) -> List[Dict]:
         """Fetch and parse a single RSS feed"""
+        feed_url = feed_config["url"]
         try:
             feed = feedparser.parse(feed_url)
             articles = []
@@ -43,6 +33,12 @@ class NewsRSSFetcher:
                     "published": entry.get("published", "Unknown date"),
                     "summary": entry.get("summary", "No summary"),
                     "author": entry.get("author", "Unknown"),
+                    "source": feed_config["name"],
+                    "category": feed_config.get("category", "general"),
+                    "region": feed_config.get("region", "CN"),
+                    "language": feed_config.get("language", "zh-CN"),
+                    "source_type": feed_config.get("source_type", "media"),
+                    "source_tags": feed_config.get("tags", []),
                 }
                 articles.append(article)
 
@@ -55,9 +51,10 @@ class NewsRSSFetcher:
         """Fetch all configured RSS feeds"""
         all_news = {}
 
-        for source, feed_url in self.feeds.items():
+        for feed_config in self.feed_configs:
+            source = feed_config["name"]
             print(f"Fetching from {source}...")
-            articles = self.fetch_feed(feed_url)
+            articles = self.fetch_feed(feed_config)
             if articles:
                 all_news[source] = articles
 
@@ -71,7 +68,6 @@ class NewsRSSFetcher:
             for article in article_list:
                 title_lower = article["title"].lower()
                 if any(keyword.lower() in title_lower for keyword in keywords):
-                    article["source"] = source
                     matching_articles.append(article)
 
         return matching_articles

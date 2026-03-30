@@ -51,6 +51,8 @@ class ChatHistoryManager:
                 CREATE TABLE IF NOT EXISTS chats (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     query TEXT NOT NULL,
+                    intent TEXT DEFAULT 'financial_query',
+                    intent_source TEXT DEFAULT 'pipeline',
                     explanation TEXT,
                     markdown_response TEXT,
                     stories_count INTEGER DEFAULT 0,
@@ -71,16 +73,45 @@ class ChatHistoryManager:
                 cursor.execute("ALTER TABLE chats ADD COLUMN timing_json TEXT")
             except Exception:
                 pass  # Column already exists
+
+            try:
+                cursor.execute("ALTER TABLE chats ADD COLUMN intent TEXT DEFAULT 'financial_query'")
+            except Exception:
+                pass  # Column already exists
+
+            try:
+                cursor.execute("ALTER TABLE chats ADD COLUMN intent_source TEXT DEFAULT 'pipeline'")
+            except Exception:
+                pass  # Column already exists
             
             # Create index for faster lookups
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_chats_created_at 
                 ON chats(created_at DESC)
             """)
+
+    @staticmethod
+    def _row_to_chat(row: sqlite3.Row) -> dict:
+        """Convert a SQLite row into the frontend chat payload."""
+        return {
+            "id": row["id"],
+            "query": row["query"],
+            "intent": row["intent"] or "financial_query",
+            "intent_source": row["intent_source"] or "pipeline",
+            "explanation": row["explanation"],
+            "markdown_response": row["markdown_response"],
+            "stories_count": row["stories_count"],
+            "stories": json.loads(row["stories_json"]) if row["stories_json"] else [],
+            "matched_entities": json.loads(row["matched_entities_json"]) if row["matched_entities_json"] else [],
+            "timing": json.loads(row["timing_json"]) if row["timing_json"] else None,
+            "created_at": row["created_at"],
+        }
     
     def save_chat(
         self,
         query: str,
+        intent: str,
+        intent_source: str,
         explanation: Optional[str],
         stories: list,
         matched_entities: list,
@@ -91,6 +122,8 @@ class ChatHistoryManager:
         
         Args:
             query: User's query string
+            intent: Intent classification label
+            intent_source: Intent routing source
             explanation: AI-generated explanation
             stories: List of story responses
             matched_entities: List of matched entities
@@ -122,9 +155,22 @@ class ChatHistoryManager:
             timing_json = json.dumps(timing) if timing else None
             
             cursor.execute("""
-                INSERT INTO chats (query, explanation, markdown_response, stories_count, stories_json, matched_entities_json, timing_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (query, explanation, markdown_response, len(stories), stories_json, entities_json, timing_json))
+                INSERT INTO chats (
+                    query, intent, intent_source, explanation, markdown_response,
+                    stories_count, stories_json, matched_entities_json, timing_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                query,
+                intent,
+                intent_source,
+                explanation,
+                markdown_response,
+                len(stories),
+                stories_json,
+                entities_json,
+                timing_json,
+            ))
             
             return cursor.lastrowid
     
@@ -140,7 +186,7 @@ class ChatHistoryManager:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, query, explanation, markdown_response, stories_count, stories_json, 
+                SELECT id, query, intent, intent_source, explanation, markdown_response, stories_count, stories_json, 
                        matched_entities_json, timing_json, created_at
                 FROM chats
                 ORDER BY created_at DESC
@@ -148,20 +194,7 @@ class ChatHistoryManager:
             """, (limit,))
             
             rows = cursor.fetchall()
-            return [
-                {
-                    "id": row["id"],
-                    "query": row["query"],
-                    "explanation": row["explanation"],
-                    "markdown_response": row["markdown_response"],
-                    "stories_count": row["stories_count"],
-                    "stories": json.loads(row["stories_json"]) if row["stories_json"] else [],
-                    "matched_entities": json.loads(row["matched_entities_json"]) if row["matched_entities_json"] else [],
-                    "timing": json.loads(row["timing_json"]) if row["timing_json"] else None,
-                    "created_at": row["created_at"],
-                }
-                for row in rows
-            ]
+            return [self._row_to_chat(row) for row in rows]
     
     def get_chat_by_id(self, chat_id: int) -> Optional[dict]:
         """Get a specific chat by ID.
@@ -175,7 +208,7 @@ class ChatHistoryManager:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, query, explanation, markdown_response, stories_count, stories_json, 
+                SELECT id, query, intent, intent_source, explanation, markdown_response, stories_count, stories_json, 
                        matched_entities_json, timing_json, created_at
                 FROM chats
                 WHERE id = ?
@@ -183,17 +216,7 @@ class ChatHistoryManager:
             
             row = cursor.fetchone()
             if row:
-                return {
-                    "id": row["id"],
-                    "query": row["query"],
-                    "explanation": row["explanation"],
-                    "markdown_response": row["markdown_response"],
-                    "stories_count": row["stories_count"],
-                    "stories": json.loads(row["stories_json"]) if row["stories_json"] else [],
-                    "matched_entities": json.loads(row["matched_entities_json"]) if row["matched_entities_json"] else [],
-                    "timing": json.loads(row["timing_json"]) if row["timing_json"] else None,
-                    "created_at": row["created_at"],
-                }
+                return self._row_to_chat(row)
             return None
     
     def search_chats(self, search_query: str, limit: int = 20) -> list[dict]:
@@ -209,7 +232,7 @@ class ChatHistoryManager:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, query, explanation, markdown_response, stories_count, stories_json, 
+                SELECT id, query, intent, intent_source, explanation, markdown_response, stories_count, stories_json, 
                        matched_entities_json, timing_json, created_at
                 FROM chats
                 WHERE query LIKE ?
@@ -218,20 +241,7 @@ class ChatHistoryManager:
             """, (f"%{search_query}%", limit))
             
             rows = cursor.fetchall()
-            return [
-                {
-                    "id": row["id"],
-                    "query": row["query"],
-                    "explanation": row["explanation"],
-                    "markdown_response": row["markdown_response"],
-                    "stories_count": row["stories_count"],
-                    "stories": json.loads(row["stories_json"]) if row["stories_json"] else [],
-                    "matched_entities": json.loads(row["matched_entities_json"]) if row["matched_entities_json"] else [],
-                    "timing": json.loads(row["timing_json"]) if row["timing_json"] else None,
-                    "created_at": row["created_at"],
-                }
-                for row in rows
-            ]
+            return [self._row_to_chat(row) for row in rows]
     
     def delete_chat(self, chat_id: int) -> bool:
         """Delete a chat by ID.

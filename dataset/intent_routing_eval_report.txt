@@ -1,0 +1,113 @@
+Intent Routing Evaluation
+================================================================================
+Examples: 60
+Correct:  43
+Accuracy: 71.67%
+Macro F1: 71.97%
+
+Per-Class Metrics
+--------------------------------------------------------------------------------
+general_chat     support= 20  precision=58.33%  recall=70.00%  f1=63.64%
+news_update      support= 20  precision=100.00%  recall=60.00%  f1=75.00%
+financial_query  support= 20  precision=70.83%  recall=85.00%  f1=77.27%
+
+Accuracy by Difficulty
+--------------------------------------------------------------------------------
+easy     count= 33  accuracy=78.79%
+hard     count=  6  accuracy=83.33%
+medium   count= 21  accuracy=57.14%
+
+Confusion Matrix
+--------------------------------------------------------------------------------
+expected \ predicted  general_chat      news_update       financial_query   
+general_chat          14                0                 6                 
+news_update           7                 12                1                 
+financial_query       3                 0                 17                
+
+First 17 Errors
+--------------------------------------------------------------------------------
+[g008] expected=general_chat predicted=financial_query source=rule
+query: 帮我把这句话翻译成英文：泡泡玛特主动降温
+reason: Matched known company or ticker alias.
+note: Translation request should bypass retrieval.
+
+[g009] expected=general_chat predicted=financial_query source=rule
+query: 帮我写一段财经周报开头
+reason: Matched a single finance keyword.
+note: Writing assistance.
+
+[g012] expected=general_chat predicted=financial_query source=rule
+query: 什么叫股票回购
+reason: Matched multiple finance or sector keywords.
+note: Finance vocabulary explanation.
+
+[g014] expected=general_chat predicted=financial_query source=rule
+query: 请给我一个学习金融新闻的路线
+reason: Matched a single finance keyword.
+note: Advice/framework question.
+
+[g016] expected=general_chat predicted=financial_query source=rule
+query: 帮我列一个行业研究框架
+reason: Matched a single finance keyword.
+note: Framework generation, not retrieval.
+
+[g017] expected=general_chat predicted=financial_query source=rule
+query: 怎样判断一篇财经文章靠不靠谱
+reason: Matched a single finance keyword.
+note: General guidance question.
+
+[u004] expected=news_update predicted=general_chat source=rule
+query: 抓一下最新文章
+reason: No strong finance or refresh signals found.
+note: Fetch latest articles.
+
+[u005] expected=news_update predicted=financial_query source=rule
+query: 检查一下有没有新的财经资讯
+reason: Matched a single finance keyword.
+note: Asks the system to check for new content.
+
+[u008] expected=news_update predicted=general_chat source=rule
+query: 重新抓一下feed并入库
+reason: No strong finance or refresh signals found.
+note: Fetch plus ingest command.
+
+[u013] expected=news_update predicted=general_chat source=rule
+query: sync the rss feeds and ingest new stories
+reason: No strong finance or refresh signals found.
+note: English refresh command.
+
+[u014] expected=news_update predicted=general_chat source=rule
+query: refresh news and backfill anything not indexed
+reason: No strong finance or refresh signals found.
+note: English refresh plus backlog sync.
+
+[u015] expected=news_update predicted=general_chat source=rule
+query: 重新扫描rss_sources里的源
+reason: No strong finance or refresh signals found.
+note: Explicit feed rescan command.
+
+[u016] expected=news_update predicted=general_chat source=rule
+query: 拉一下新文章并建立索引
+reason: No strong finance or refresh signals found.
+note: Fetch and index request.
+
+[u017] expected=news_update predicted=general_chat source=rule
+query: 查看有没有新增新闻并导入
+reason: No strong finance or refresh signals found.
+note: Operational import command.
+
+[f012] expected=financial_query predicted=general_chat source=rule
+query: 关税消息对苹果供应链有什么影响
+reason: No strong finance or refresh signals found.
+note: Event impact query.
+
+[f017] expected=financial_query predicted=general_chat source=rule
+query: 最近有哪些关于AI芯片的融资或合作新闻
+reason: No strong finance or refresh signals found.
+note: Theme + event retrieval.
+
+[f018] expected=financial_query predicted=general_chat source=rule
+query: 给我看看最近和地产债相关的新闻
+reason: No strong finance or refresh signals found.
+note: Topic retrieval.
+

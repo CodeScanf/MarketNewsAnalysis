@@ -10,7 +10,7 @@ from time import perf_counter
 
 from intanalysis import IntelligenceSystem, Article
 from intanalysis.chat_history import ChatHistoryManager
-from intanalysis.models import QueryTiming
+from intanalysis.models import QueryIntent, QueryTiming
 
 
 def _configure_console_encoding() -> None:
@@ -112,6 +112,9 @@ class StoryResponse(BaseModel):
 class QueryResponse(BaseModel):
     """Response model for queries."""
     query: str
+    intent: QueryIntent
+    intent_source: str
+    intent_reason: str
     stories: List[StoryResponse]
     matched_entities: List[EntityResponse]
     explanation: Optional[str]
@@ -186,6 +189,26 @@ def format_query_as_markdown(query: str, stories: list, explanation: str) -> str
         
         md += "---\n\n"
     
+    return md
+
+
+def format_general_as_markdown(query: str, explanation: str) -> str:
+    """Format general-chat responses as markdown."""
+    return f"# General Answer: \"{query}\"\n\n## Response\n{explanation or 'No answer generated.'}\n"
+
+
+def format_update_as_markdown(query: str, stories: list, explanation: str) -> str:
+    """Format news refresh responses as markdown."""
+    md = f"# News Refresh: \"{query}\"\n\n"
+    if explanation:
+        md += f"## Summary\n{explanation}\n\n"
+    md += f"## {len(stories)} new source{'s' if len(stories) != 1 else ''} indexed.\n\n"
+    for i, story in enumerate(stories, 1):
+        md += f"### {i}. {story.title}\n\n"
+        md += f"**Source:** {story.source or 'Unknown'}\n\n"
+        if story.content:
+            md += f"{story.content[:400]}\n\n"
+        md += "---\n\n"
     return md
 
 
@@ -294,7 +317,7 @@ async def query_system(request: QueryRequest):
     """
     try:
         request_started = perf_counter()
-        result = system.query(request.query)
+        result = system.handle_user_query(request.query)
         
         stories = [story_to_response(story) for story in result.stories]
         entities = [
@@ -302,13 +325,20 @@ async def query_system(request: QueryRequest):
             for e in result.matched_entities
         ]
         
-        markdown = format_query_as_markdown(request.query, stories, result.explanation)
+        if result.intent == QueryIntent.GENERAL_CHAT:
+            markdown = format_general_as_markdown(request.query, result.explanation)
+        elif result.intent == QueryIntent.NEWS_UPDATE:
+            markdown = format_update_as_markdown(request.query, stories, result.explanation)
+        else:
+            markdown = format_query_as_markdown(request.query, stories, result.explanation)
         result.timing.api_ms = round((perf_counter() - request_started) * 1000, 1)
         
         # Save chat to history
         try:
             chat_history.save_chat(
                 query=request.query,
+                intent=result.intent.value,
+                intent_source=result.intent_source,
                 explanation=result.explanation,
                 stories=stories,
                 matched_entities=entities,
@@ -320,6 +350,9 @@ async def query_system(request: QueryRequest):
         
         return QueryResponse(
             query=result.query,
+            intent=result.intent,
+            intent_source=result.intent_source,
+            intent_reason=result.intent_reason,
             stories=stories,
             matched_entities=entities,
             explanation=result.explanation,

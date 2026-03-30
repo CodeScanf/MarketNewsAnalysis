@@ -356,6 +356,20 @@ body {
   line-height: 1.6;
 }
 
+.intent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #9df2d8;
+  background: rgba(16, 163, 127, 0.12);
+  border: 1px solid rgba(16, 163, 127, 0.24);
+}
+
 .timing-card {
   display: flex;
   flex-direction: column;

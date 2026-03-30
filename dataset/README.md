@@ -155,11 +155,18 @@ thirty_days_ago = datetime.now() - timedelta(days=30)  # Adjust days value
 ```
 
 ### Adding New RSS Feeds
-Add new feeds to the `self.feeds` dictionary in either `feeds.py` or `articals.py`:
-```python
-self.feeds = {
-    "Source Name": "https://example.com/rss/feed.xml",
-    # ... existing feeds
+Add new feeds to [rss_sources.json](/home/tree/sda1/Liu/AiProject/MarketNewsAnalysis/dataset/rss_sources.json) instead of editing Python code:
+```json
+{
+  "name": "Source Name",
+  "url": "https://example.com/rss/feed.xml",
+  "category": "finance_news",
+  "region": "CN",
+  "language": "zh-CN",
+  "source_type": "media",
+  "enabled": true,
+  "priority": 3,
+  "tags": ["market", "company"]
 }
 ```
 

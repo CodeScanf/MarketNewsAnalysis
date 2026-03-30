@@ -9,12 +9,24 @@ const formatDuration = (value) => {
 };
 
 const TIMING_LABELS = {
+  intent_classify_ms: 'Intent',
   extract_entities_ms: 'Entity',
   expand_query_ms: 'Expand',
   search_ms: 'Search',
   rerank_ms: 'Rerank',
   entity_boost_ms: 'Boost',
+  general_llm_ms: 'LLM',
+  refresh_feeds_ms: 'Refresh',
+  refresh_persist_ms: 'Persist',
+  refresh_dataset_scan_ms: 'Sync Scan',
+  refresh_ingest_ms: 'Ingest',
   answer_ms: 'LLM',
+};
+
+const INTENT_LABELS = {
+  general_chat: 'General',
+  news_update: 'Refresh',
+  financial_query: 'Finance',
 };
 
 function App() {
@@ -70,6 +82,8 @@ function App() {
           content: result.markdown_response,
           timing: result.timing,
           clientMs: result.client_ms,
+          intent: result.intent,
+          intentSource: result.intent_source,
         },
       ]);
       // Refresh chat history after new query
@@ -110,7 +124,12 @@ function App() {
     let markdown = chat.markdown_response;
     if (!markdown) {
       // Fallback: Build markdown response from stored data
-      markdown = `# Query Results: "${chat.query}"\n\n`;
+      const heading = chat.intent === 'general_chat'
+        ? 'General Answer'
+        : chat.intent === 'news_update'
+          ? 'News Refresh'
+          : 'Query Results';
+      markdown = `# ${heading}: "${chat.query}"\n\n`;
       if (chat.explanation) {
         markdown += `## Summary\n${chat.explanation}\n\n`;
       }
@@ -125,6 +144,8 @@ function App() {
       role: 'assistant',
       content: markdown,
       timing: chat.timing || null,
+      intent: chat.intent || 'financial_query',
+      intentSource: chat.intent_source || 'pipeline',
     });
     setMessages(newMessages);
   };
@@ -161,10 +182,10 @@ function App() {
   };
 
   const suggestions = [
-    'HDFC Bank news',
-    'Banking sector update',
-    'RBI policy changes',
-    'Interest rate impact',
+    '泡泡玛特的股票能买吗？',
+    '更新一下新闻',
+    '最近港股消费板块怎么样？',
+    '帮我解释一下什么是通货膨胀',
   ];
 
   return (
@@ -198,7 +219,7 @@ function App() {
                   <div className="history-item-content">
                     <span className="history-query">{chat.query}</span>
                     <span className="history-meta">
-                      {chat.stories_count} sources • {formatDate(chat.created_at)}
+                      {(INTENT_LABELS[chat.intent] || 'Finance')} • {chat.stories_count} sources • {formatDate(chat.created_at)}
                     </span>
                   </div>
                   <button
@@ -266,6 +287,12 @@ function App() {
                     {msg.role === 'user' ? '👤' : '🤖'}
                   </div>
                   <div className="message-content">
+                    {msg.role === 'assistant' && msg.intent && (
+                      <div className="intent-chip">
+                        Route: {INTENT_LABELS[msg.intent] || msg.intent}
+                        {msg.intentSource ? ` · ${msg.intentSource}` : ''}
+                      </div>
+                    )}
                     {msg.role === 'assistant' && (msg.timing || msg.clientMs != null) && (
                       <div className="timing-card">
                         <div className="timing-summary">
@@ -319,7 +346,7 @@ function App() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about financial news..."
+                placeholder="输入通识问题、更新新闻，或直接问金融问题..."
                 disabled={loading}
               />
               <button

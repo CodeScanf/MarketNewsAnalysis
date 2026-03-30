@@ -8,17 +8,22 @@ import os
 import sys
 from pathlib import Path
 
+DATASET_DIR = Path(__file__).resolve().parent
+if str(DATASET_DIR) not in sys.path:
+    sys.path.insert(0, str(DATASET_DIR))
+
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from feed_config import DEFAULT_FEED_CONFIG_PATH, load_feed_configs
 from text_cleaning import clean_text, clean_html_text, combine_article_text
 
 
 class NewsRSSMonitor:
     """Monitor RSS feeds for new articles continuously"""
 
-    def __init__(self, check_interval: int = 300):
+    def __init__(self, check_interval: int = 300, feed_config_path: str | None = None):
         """
         Initialize monitor
         check_interval: seconds between checks (default: 300 = 5 minutes)
@@ -26,29 +31,9 @@ class NewsRSSMonitor:
         self.check_interval = check_interval
         self.articals_loaded: Set[str] = set()
         self.cache_file = "./dataset/articals_loaded.json"
-
-        # Configured Chinese finance, business, and tech RSS feeds
-        self.feeds = {
-            "叶檀财经": "https://plink.anyfeeder.com/weixin/tancaijing",
-            "华尔街见闻": "https://plink.anyfeeder.com/weixin/wallstreetcn",
-            "财新网": "https://plink.anyfeeder.com/weixin/caix",
-            "第一财经周刊": "https://plink.anyfeeder.com/weixin/CBNweekly",
-            "经济观察网": "https://plink.anyfeeder.com/eeo",
-            "财富中文网": "https://plink.anyfeeder.com/fortunechina",
-            "路透中文": "https://plink.anyfeeder.com/reuters/cn",
-            "雪球热门话题": "https://plink.anyfeeder.com/xueqiu/hot",
-            "36氪": "https://plink.anyfeeder.com/36kr",
-            "虎嗅": "https://plink.anyfeeder.com/weixin/huxiu",
-            "钛媒体": "https://plink.anyfeeder.com/tmtpost",
-            "界面新闻": "https://plink.anyfeeder.com/jiemian/business",
-            "哈佛商业评论": "https://plink.anyfeeder.com/weixin/hbrchina",
-            "吴晓波频道": "https://plink.anyfeeder.com/weixin/wuxiaobo",
-            "德林社": "https://plink.anyfeeder.com/weixin/delin",
-            "美股研究社": "https://plink.anyfeeder.com/weixin/meigu",
-            "中国日报·财经": "https://plink.anyfeeder.com/chinadaily/business",
-            "商业-财富子频道": "https://plink.anyfeeder.com/fortunechina/business",
-            "喷嚏网·财经风云": "https://plink.anyfeeder.com/dapenti/cai",
-        }
+        self.feed_config_path = feed_config_path or str(DEFAULT_FEED_CONFIG_PATH)
+        self.feed_configs = load_feed_configs(self.feed_config_path)
+        self.feeds = {feed["name"]: feed["url"] for feed in self.feed_configs}
 
         # Load previously seen articles
         self.load_articals_loaded()
@@ -72,8 +57,10 @@ class NewsRSSMonitor:
         except Exception as e:
             print(f"Error saving cache: {e}")
 
-    def fetch_feed(self, feed_url: str, source: str) -> List[Dict]:
+    def fetch_feed(self, feed_config: Dict) -> List[Dict]:
         """Fetch and parse a single RSS feed, return only NEW articles from last 30 days"""
+        feed_url = feed_config["url"]
+        source = feed_config["name"]
         try:
             feed = feedparser.parse(feed_url)
             new_articles = []
@@ -106,6 +93,12 @@ class NewsRSSMonitor:
                         "category": entry.get("category", ""),
                         "source": clean_text(source),
                         "feed_url": feed_url,
+                        "source_category": feed_config.get("category", "general"),
+                        "source_region": feed_config.get("region", "CN"),
+                        "source_language": feed_config.get("language", "zh-CN"),
+                        "source_type": feed_config.get("source_type", "media"),
+                        "source_priority": feed_config.get("priority", 0),
+                        "source_tags": feed_config.get("tags", []),
                         "fetched_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     }
                     new_articles.append(article)
@@ -120,8 +113,8 @@ class NewsRSSMonitor:
         """Check all feeds for new articles"""
         all_new_articles = []
 
-        for source, feed_url in self.feeds.items():
-            new_articles = self.fetch_feed(feed_url, source)
+        for feed_config in self.feed_configs:
+            new_articles = self.fetch_feed(feed_config)
 
             if keywords:
                 filtered = []

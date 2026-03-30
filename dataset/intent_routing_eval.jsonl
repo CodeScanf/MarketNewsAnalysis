@@ -1,0 +1,60 @@
+{"id":"g001","query":"你好","expected_intent":"general_chat","difficulty":"easy","note":"Basic greeting should go directly to the LLM."}
+{"id":"g002","query":"你是谁","expected_intent":"general_chat","difficulty":"easy","note":"Assistant identity question."}
+{"id":"g003","query":"你能帮我做什么","expected_intent":"general_chat","difficulty":"easy","note":"Capability question, not a KB query."}
+{"id":"g004","query":"帮我解释一下什么是通货膨胀","expected_intent":"general_chat","difficulty":"hard","note":"Contains macro term but asks for a concept explanation, not news retrieval."}
+{"id":"g005","query":"什么是市盈率","expected_intent":"general_chat","difficulty":"hard","note":"Financial concept question should be answered directly."}
+{"id":"g006","query":"通俗解释一下CPI和PPI的区别","expected_intent":"general_chat","difficulty":"hard","note":"Concept explanation with financial terms."}
+{"id":"g007","query":"介绍一下美联储降息是什么意思","expected_intent":"general_chat","difficulty":"hard","note":"Asks for explanation of a concept rather than latest news."}
+{"id":"g008","query":"帮我把这句话翻译成英文：泡泡玛特主动降温","expected_intent":"general_chat","difficulty":"easy","note":"Translation request should bypass retrieval."}
+{"id":"g009","query":"帮我写一段财经周报开头","expected_intent":"general_chat","difficulty":"easy","note":"Writing assistance."}
+{"id":"g010","query":"帮我润色这段投资复盘","expected_intent":"general_chat","difficulty":"easy","note":"Editing request, not news retrieval."}
+{"id":"g011","query":"如何理解预期差这个词","expected_intent":"general_chat","difficulty":"medium","note":"Definition-style question."}
+{"id":"g012","query":"什么叫股票回购","expected_intent":"general_chat","difficulty":"hard","note":"Finance vocabulary explanation."}
+{"id":"g013","query":"什么是港股通","expected_intent":"general_chat","difficulty":"hard","note":"Market concept explanation."}
+{"id":"g014","query":"请给我一个学习金融新闻的路线","expected_intent":"general_chat","difficulty":"medium","note":"Advice/framework question."}
+{"id":"g015","query":"解释一下宏观叙事是什么意思","expected_intent":"general_chat","difficulty":"medium","note":"Definition request."}
+{"id":"g016","query":"帮我列一个行业研究框架","expected_intent":"general_chat","difficulty":"medium","note":"Framework generation, not retrieval."}
+{"id":"g017","query":"怎样判断一篇财经文章靠不靠谱","expected_intent":"general_chat","difficulty":"medium","note":"General guidance question."}
+{"id":"g018","query":"我今天有点焦虑，怎么安排工作","expected_intent":"general_chat","difficulty":"easy","note":"General life/productivity advice."}
+{"id":"g019","query":"帮我写一封给券商客服的英文邮件","expected_intent":"general_chat","difficulty":"easy","note":"Writing assistance, not KB lookup."}
+{"id":"g020","query":"What is inflation in simple terms?","expected_intent":"general_chat","difficulty":"medium","note":"English concept explanation."}
+{"id":"u001","query":"更新一下新闻","expected_intent":"news_update","difficulty":"easy","note":"Explicit refresh command."}
+{"id":"u002","query":"刷新一下新闻源","expected_intent":"news_update","difficulty":"easy","note":"Explicit refresh command."}
+{"id":"u003","query":"同步rss","expected_intent":"news_update","difficulty":"easy","note":"Operational sync request."}
+{"id":"u004","query":"抓一下最新文章","expected_intent":"news_update","difficulty":"easy","note":"Fetch latest articles."}
+{"id":"u005","query":"检查一下有没有新的财经资讯","expected_intent":"news_update","difficulty":"medium","note":"Asks the system to check for new content."}
+{"id":"u006","query":"把未入库文章同步到知识库","expected_intent":"news_update","difficulty":"easy","note":"Direct backlog ingestion request."}
+{"id":"u007","query":"重新同步本地rss数据","expected_intent":"news_update","difficulty":"easy","note":"Operational sync request."}
+{"id":"u008","query":"重新抓一下feed并入库","expected_intent":"news_update","difficulty":"easy","note":"Fetch plus ingest command."}
+{"id":"u009","query":"补抓最近没入库的文章","expected_intent":"news_update","difficulty":"easy","note":"Backfill request."}
+{"id":"u010","query":"更新关注的新闻","expected_intent":"news_update","difficulty":"medium","note":"Refresh tracked news sources."}
+{"id":"u011","query":"帮我刷新一下数据源","expected_intent":"news_update","difficulty":"easy","note":"Operational command."}
+{"id":"u012","query":"检查rss并更新数据库","expected_intent":"news_update","difficulty":"easy","note":"Refresh plus sync request."}
+{"id":"u013","query":"sync the rss feeds and ingest new stories","expected_intent":"news_update","difficulty":"medium","note":"English refresh command."}
+{"id":"u014","query":"refresh news and backfill anything not indexed","expected_intent":"news_update","difficulty":"medium","note":"English refresh plus backlog sync."}
+{"id":"u015","query":"重新扫描rss_sources里的源","expected_intent":"news_update","difficulty":"medium","note":"Explicit feed rescan command."}
+{"id":"u016","query":"拉一下新文章并建立索引","expected_intent":"news_update","difficulty":"easy","note":"Fetch and index request."}
+{"id":"u017","query":"查看有没有新增新闻并导入","expected_intent":"news_update","difficulty":"medium","note":"Operational import command."}
+{"id":"u018","query":"更新一下文章库","expected_intent":"news_update","difficulty":"medium","note":"Refresh local article store."}
+{"id":"u019","query":"抓取最新rss并把没入库的补进去","expected_intent":"news_update","difficulty":"easy","note":"Combined fetch and backfill request."}
+{"id":"u020","query":"重跑新闻同步","expected_intent":"news_update","difficulty":"easy","note":"Operational rerun request."}
+{"id":"f001","query":"泡泡玛特的股票能买吗","expected_intent":"financial_query","difficulty":"easy","note":"Company-specific investment/news query."}
+{"id":"f002","query":"最近港股消费板块怎么样","expected_intent":"financial_query","difficulty":"easy","note":"Sector news query."}
+{"id":"f003","query":"今天有哪些AI行业新闻","expected_intent":"financial_query","difficulty":"easy","note":"Thematic news retrieval."}
+{"id":"f004","query":"最新的房地产政策对A股有什么影响","expected_intent":"financial_query","difficulty":"medium","note":"Policy impact query requiring news evidence."}
+{"id":"f005","query":"比亚迪最近有什么消息","expected_intent":"financial_query","difficulty":"easy","note":"Company news query."}
+{"id":"f006","query":"港股创新药板块最近为什么跌","expected_intent":"financial_query","difficulty":"medium","note":"Market explanation grounded in news."}
+{"id":"f007","query":"最近有什么和美联储有关的市场新闻","expected_intent":"financial_query","difficulty":"medium","note":"Latest-news wording but asks for retrieval, not refresh."}
+{"id":"f008","query":"腾讯这周的相关新闻有哪些","expected_intent":"financial_query","difficulty":"easy","note":"Company news retrieval."}
+{"id":"f009","query":"泡泡玛特和布鲁可谁更受市场关注","expected_intent":"financial_query","difficulty":"medium","note":"Compare market attention using news."}
+{"id":"f010","query":"小米汽车相关的最新新闻","expected_intent":"financial_query","difficulty":"easy","note":"Latest news lookup, not data refresh."}
+{"id":"f011","query":"最近有哪些影响银行股的政策","expected_intent":"financial_query","difficulty":"easy","note":"Policy/news retrieval."}
+{"id":"f012","query":"关税消息对苹果供应链有什么影响","expected_intent":"financial_query","difficulty":"medium","note":"Event impact query."}
+{"id":"f013","query":"近期有哪些关于港交所的监管公告值得关注","expected_intent":"financial_query","difficulty":"medium","note":"Regulatory retrieval question."}
+{"id":"f014","query":"帮我找一下最近的黄金市场新闻","expected_intent":"financial_query","difficulty":"easy","note":"Commodity news retrieval."}
+{"id":"f015","query":"最近三天消费电子板块的消息","expected_intent":"financial_query","difficulty":"easy","note":"Time-bounded sector retrieval."}
+{"id":"f016","query":"市场怎么看这次央行降准","expected_intent":"financial_query","difficulty":"medium","note":"Needs market/news synthesis."}
+{"id":"f017","query":"最近有哪些关于AI芯片的融资或合作新闻","expected_intent":"financial_query","difficulty":"easy","note":"Theme + event retrieval."}
+{"id":"f018","query":"给我看看最近和地产债相关的新闻","expected_intent":"financial_query","difficulty":"easy","note":"Topic retrieval."}
+{"id":"f019","query":"What are the latest news about Pop Mart stock?","expected_intent":"financial_query","difficulty":"medium","note":"English company news query."}
+{"id":"f020","query":"最近的泡泡玛特新闻有哪些","expected_intent":"financial_query","difficulty":"easy","note":"Contains latest/recent wording but is still retrieval rather than refresh."}
