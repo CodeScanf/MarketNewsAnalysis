@@ -103,6 +103,26 @@ class QueryTiming(BaseModel):
     stages: dict[str, float] = Field(default_factory=dict)
 
 
+class ConversationTurn(BaseModel):
+    """Recent conversation turn passed in from the client."""
+    role: str
+    content: str
+    intent: Optional[QueryIntent] = None
+    matched_entities: List[str] = Field(default_factory=list)
+    story_titles: List[str] = Field(default_factory=list)
+
+
+class ShortTermContext(BaseModel):
+    """Structured short-term context extracted from recent turns."""
+    recent_entities: List[str] = Field(default_factory=list)
+    recent_story_titles: List[str] = Field(default_factory=list)
+    last_intent: Optional[QueryIntent] = None
+    last_user_query: Optional[str] = None
+    turn_count: int = 0
+    applied: bool = False
+    resolved_query: Optional[str] = None
+
+
 class IntentDecision(BaseModel):
     """Result of intent classification."""
     intent: QueryIntent

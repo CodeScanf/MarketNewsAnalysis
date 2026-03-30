@@ -3,14 +3,14 @@
 import sys
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 import json
 from time import perf_counter
 
 from intanalysis import IntelligenceSystem, Article
 from intanalysis.chat_history import ChatHistoryManager
-from intanalysis.models import QueryIntent, QueryTiming
+from intanalysis.models import ConversationTurn, QueryIntent, QueryTiming
 
 
 def _configure_console_encoding() -> None:
@@ -76,9 +76,19 @@ class IngestResponse(BaseModel):
     unique_stories: List[dict] = []
 
 
+class ConversationTurnInput(BaseModel):
+    """Recent conversation turn payload from the frontend."""
+    role: str
+    content: str
+    intent: Optional[QueryIntent] = None
+    matched_entities: List[str] = Field(default_factory=list)
+    story_titles: List[str] = Field(default_factory=list)
+
+
 class QueryRequest(BaseModel):
     """Request model for querying."""
     query: str
+    history: List[ConversationTurnInput] = Field(default_factory=list)
 
 
 class EntityResponse(BaseModel):
@@ -317,7 +327,17 @@ async def query_system(request: QueryRequest):
     """
     try:
         request_started = perf_counter()
-        result = system.handle_user_query(request.query)
+        history = [
+            ConversationTurn(
+                role=turn.role,
+                content=turn.content,
+                intent=turn.intent,
+                matched_entities=turn.matched_entities,
+                story_titles=turn.story_titles,
+            )
+            for turn in request.history
+        ]
+        result = system.handle_user_query(request.query, history=history)
         
         stories = [story_to_response(story) for story in result.stories]
         entities = [

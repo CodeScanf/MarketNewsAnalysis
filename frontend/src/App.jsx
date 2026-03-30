@@ -9,6 +9,7 @@ const formatDuration = (value) => {
 };
 
 const TIMING_LABELS = {
+  context_build_ms: 'Context',
   intent_classify_ms: 'Intent',
   extract_entities_ms: 'Entity',
   expand_query_ms: 'Expand',
@@ -64,17 +65,37 @@ function App() {
     }
   };
 
+  const buildHistoryPayload = (historyMessages) => {
+    return historyMessages.slice(-6).map((message) => ({
+      role: message.role,
+      content: message.content,
+      intent: message.intent || null,
+      matched_entities: Array.isArray(message.matchedEntities)
+        ? message.matchedEntities
+            .map((entity) => (typeof entity === 'string' ? entity : entity?.name))
+            .filter(Boolean)
+        : [],
+      story_titles: Array.isArray(message.stories)
+        ? message.stories
+            .map((story) => story?.title)
+            .filter(Boolean)
+            .slice(0, 3)
+        : [],
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!input.trim() || loading) return;
 
     const userMessage = input.trim();
+    const historyPayload = buildHistoryPayload(messages);
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
 
     try {
-      const result = await queryNews(userMessage);
+      const result = await queryNews(userMessage, historyPayload);
       setMessages((prev) => [
         ...prev,
         {
@@ -84,6 +105,8 @@ function App() {
           clientMs: result.client_ms,
           intent: result.intent,
           intentSource: result.intent_source,
+          matchedEntities: result.matched_entities || [],
+          stories: result.stories || [],
         },
       ]);
       // Refresh chat history after new query
@@ -146,6 +169,8 @@ function App() {
       timing: chat.timing || null,
       intent: chat.intent || 'financial_query',
       intentSource: chat.intent_source || 'pipeline',
+      matchedEntities: chat.matched_entities || [],
+      stories: chat.stories || [],
     });
     setMessages(newMessages);
   };

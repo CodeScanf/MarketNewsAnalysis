@@ -9,9 +9,9 @@ const api = axios.create({
   },
 });
 
-export const queryNews = async (query) => {
+export const queryNews = async (query, history = []) => {
   const started = performance.now();
-  const response = await api.post('/query', { query });
+  const response = await api.post('/query', { query, history });
   return {
     ...response.data,
     client_ms: Number((performance.now() - started).toFixed(1)),
