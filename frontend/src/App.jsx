@@ -1,6 +1,15 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { queryNews, getChatHistory, deleteChat, clearChatHistory } from './api';
+import {
+  clearChatHistory,
+  deleteChat,
+  getChatHistory,
+  getCurrentUser,
+  loginUser,
+  logoutUser,
+  queryNews,
+  registerUser,
+} from './api';
 
 const formatDuration = (value) => {
   if (value == null) return '--';
@@ -30,6 +39,25 @@ const INTENT_LABELS = {
   financial_query: 'Finance',
 };
 
+const suggestions = [
+  '泡泡玛特的股票能买吗？',
+  '更新一下新闻',
+  '最近港股消费板块怎么样？',
+  '帮我解释一下什么是通货膨胀',
+];
+
+const emptyRegisterForm = {
+  username: '',
+  email: '',
+  display_name: '',
+  password: '',
+};
+
+const emptyLoginForm = {
+  identifier: '',
+  password: '',
+};
+
 function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -37,6 +65,13 @@ function App() {
   const [chatHistory, setChatHistory] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authMode, setAuthMode] = useState('login');
+  const [loginForm, setLoginForm] = useState(emptyLoginForm);
+  const [registerForm, setRegisterForm] = useState(emptyRegisterForm);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -49,9 +84,28 @@ function App() {
   }, [messages]);
 
   useEffect(() => {
-    inputRef.current?.focus();
-    loadChatHistory();
+    bootstrapSession();
   }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      inputRef.current?.focus();
+    }
+  }, [currentUser]);
+
+  const bootstrapSession = async () => {
+    setSessionLoading(true);
+    try {
+      const user = await getCurrentUser();
+      setCurrentUser(user);
+      await loadChatHistory();
+    } catch (err) {
+      setCurrentUser(null);
+      setChatHistory([]);
+    } finally {
+      setSessionLoading(false);
+    }
+  };
 
   const loadChatHistory = async () => {
     setHistoryLoading(true);
@@ -59,7 +113,13 @@ function App() {
       const data = await getChatHistory(50);
       setChatHistory(data.chats || []);
     } catch (err) {
-      console.error('Failed to load chat history:', err);
+      if (err.response?.status === 401) {
+        setCurrentUser(null);
+        setChatHistory([]);
+        setMessages([]);
+      } else {
+        console.error('Failed to load chat history:', err);
+      }
     } finally {
       setHistoryLoading(false);
     }
@@ -84,9 +144,68 @@ function App() {
     }));
   };
 
+  const handleLoginSubmit = async (e) => {
+    e.preventDefault();
+    if (!loginForm.identifier.trim() || !loginForm.password) return;
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      const user = await loginUser({
+        identifier: loginForm.identifier.trim(),
+        password: loginForm.password,
+      });
+      setCurrentUser(user);
+      setLoginForm(emptyLoginForm);
+      setMessages([]);
+      await loadChatHistory();
+    } catch (err) {
+      setAuthError(err.response?.data?.detail || 'Login failed');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleRegisterSubmit = async (e) => {
+    e.preventDefault();
+    if (!registerForm.username.trim() || !registerForm.email.trim() || !registerForm.password) return;
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      const user = await registerUser({
+        username: registerForm.username.trim(),
+        email: registerForm.email.trim(),
+        display_name: registerForm.display_name.trim() || undefined,
+        password: registerForm.password,
+      });
+      setCurrentUser(user);
+      setRegisterForm(emptyRegisterForm);
+      setMessages([]);
+      await loadChatHistory();
+    } catch (err) {
+      setAuthError(err.response?.data?.detail || 'Registration failed');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+    } catch (err) {
+      console.error('Failed to logout:', err);
+    } finally {
+      setCurrentUser(null);
+      setMessages([]);
+      setChatHistory([]);
+      setAuthError('');
+      setLoginForm(emptyLoginForm);
+      setRegisterForm(emptyRegisterForm);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!input.trim() || loading) return;
+    if (!currentUser || !input.trim() || loading) return;
 
     const userMessage = input.trim();
     const historyPayload = buildHistoryPayload(messages);
@@ -109,16 +228,22 @@ function App() {
           stories: result.stories || [],
         },
       ]);
-      // Refresh chat history after new query
-      loadChatHistory();
+      await loadChatHistory();
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `**Error:** ${err.response?.data?.detail || err.message}`,
-        },
-      ]);
+      if (err.response?.status === 401) {
+        setCurrentUser(null);
+        setChatHistory([]);
+        setMessages([]);
+        setAuthError('Session expired. Please log in again.');
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: `**Error:** ${err.response?.data?.detail || err.message}`,
+          },
+        ]);
+      }
     } finally {
       setLoading(false);
       inputRef.current?.focus();
@@ -138,15 +263,10 @@ function App() {
   };
 
   const handleSelectChat = (chat) => {
-    // Reconstruct the conversation from history
-    const newMessages = [
-      { role: 'user', content: chat.query },
-    ];
-    
-    // Use stored markdown_response if available, otherwise build from data
+    const reconstructed = [{ role: 'user', content: chat.query }];
+
     let markdown = chat.markdown_response;
     if (!markdown) {
-      // Fallback: Build markdown response from stored data
       const heading = chat.intent === 'general_chat'
         ? 'General Answer'
         : chat.intent === 'news_update'
@@ -162,8 +282,8 @@ function App() {
         markdown += `**Source:** ${story.source || 'Unknown'}\n\n`;
       });
     }
-    
-    newMessages.push({
+
+    reconstructed.push({
       role: 'assistant',
       content: markdown,
       timing: chat.timing || null,
@@ -172,7 +292,7 @@ function App() {
       matchedEntities: chat.matched_entities || [],
       stories: chat.stories || [],
     });
-    setMessages(newMessages);
+    setMessages(reconstructed);
   };
 
   const handleDeleteChat = async (e, chatId) => {
@@ -199,23 +319,144 @@ function App() {
     const date = new Date(dateStr);
     const now = new Date();
     const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
-    
+
     if (diffDays === 0) return 'Today';
     if (diffDays === 1) return 'Yesterday';
     if (diffDays < 7) return `${diffDays} days ago`;
     return date.toLocaleDateString();
   };
 
-  const suggestions = [
-    '泡泡玛特的股票能买吗？',
-    '更新一下新闻',
-    '最近港股消费板块怎么样？',
-    '帮我解释一下什么是通货膨胀',
-  ];
+  if (sessionLoading) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card auth-loading">Loading session...</div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card">
+          <div className="auth-header">
+            <p className="auth-kicker">Financial News Intelligence</p>
+            <h1>Account Access</h1>
+            <p className="auth-copy">
+              Register once to get an isolated private knowledge space and access the shared public knowledge base.
+            </p>
+          </div>
+
+          <div className="auth-tabs">
+            <button
+              className={`auth-tab ${authMode === 'login' ? 'active' : ''}`}
+              onClick={() => {
+                setAuthMode('login');
+                setAuthError('');
+              }}
+              type="button"
+            >
+              Login
+            </button>
+            <button
+              className={`auth-tab ${authMode === 'register' ? 'active' : ''}`}
+              onClick={() => {
+                setAuthMode('register');
+                setAuthError('');
+              }}
+              type="button"
+            >
+              Register
+            </button>
+          </div>
+
+          {authError ? <div className="auth-error">{authError}</div> : null}
+
+          {authMode === 'login' ? (
+            <form className="auth-form" onSubmit={handleLoginSubmit}>
+              <label>
+                Username or email
+                <input
+                  type="text"
+                  value={loginForm.identifier}
+                  onChange={(e) => setLoginForm((prev) => ({ ...prev, identifier: e.target.value }))}
+                  placeholder="yourname or you@example.com"
+                  autoComplete="username"
+                  disabled={authLoading}
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  value={loginForm.password}
+                  onChange={(e) => setLoginForm((prev) => ({ ...prev, password: e.target.value }))}
+                  placeholder="Enter your password"
+                  autoComplete="current-password"
+                  disabled={authLoading}
+                />
+              </label>
+              <button className="auth-submit" type="submit" disabled={authLoading}>
+                {authLoading ? 'Signing in...' : 'Sign In'}
+              </button>
+            </form>
+          ) : (
+            <form className="auth-form" onSubmit={handleRegisterSubmit}>
+              <label>
+                Username
+                <input
+                  type="text"
+                  value={registerForm.username}
+                  onChange={(e) => setRegisterForm((prev) => ({ ...prev, username: e.target.value }))}
+                  placeholder="Choose a username"
+                  autoComplete="username"
+                  disabled={authLoading}
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={registerForm.email}
+                  onChange={(e) => setRegisterForm((prev) => ({ ...prev, email: e.target.value }))}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  disabled={authLoading}
+                />
+              </label>
+              <label>
+                Display name
+                <input
+                  type="text"
+                  value={registerForm.display_name}
+                  onChange={(e) => setRegisterForm((prev) => ({ ...prev, display_name: e.target.value }))}
+                  placeholder="Optional display name"
+                  autoComplete="name"
+                  disabled={authLoading}
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  value={registerForm.password}
+                  onChange={(e) => setRegisterForm((prev) => ({ ...prev, password: e.target.value }))}
+                  placeholder="Create a password"
+                  autoComplete="new-password"
+                  disabled={authLoading}
+                />
+              </label>
+              <button className="auth-submit" type="submit" disabled={authLoading}>
+                {authLoading ? 'Creating account...' : 'Create Account'}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-layout">
-      {/* Sidebar */}
       <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
         <div className="sidebar-header">
           <button className="new-chat-btn" onClick={handleNewChat}>
@@ -227,7 +468,21 @@ function App() {
             </svg>
           </button>
         </div>
-        
+
+        <div className="sidebar-user">
+          <div className="sidebar-user-meta">
+            <strong>{currentUser.display_name || currentUser.username}</strong>
+            <span>{currentUser.email}</span>
+            <small>
+              Public: {currentUser.public_namespace?.slug}
+              {currentUser.default_private_namespace?.slug ? ` | Private: ${currentUser.default_private_namespace.slug}` : ''}
+            </small>
+          </div>
+          <button className="logout-btn" onClick={handleLogout}>
+            Logout
+          </button>
+        </div>
+
         <div className="chat-history">
           {historyLoading ? (
             <div className="history-loading">Loading...</div>
@@ -252,14 +507,14 @@ function App() {
                     onClick={(e) => handleDeleteChat(e, chat.id)}
                     title="Delete chat"
                   >
-                    ×
+                    x
                   </button>
                 </div>
               ))}
             </div>
           )}
         </div>
-        
+
         {chatHistory.length > 0 && (
           <div className="sidebar-footer">
             <button className="clear-history-btn" onClick={handleClearHistory}>
@@ -269,7 +524,6 @@ function App() {
         )}
       </aside>
 
-      {/* Toggle button when sidebar is closed */}
       {!sidebarOpen && (
         <button className="sidebar-open-btn" onClick={() => setSidebarOpen(true)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -278,20 +532,20 @@ function App() {
         </button>
       )}
 
-      {/* Main Chat Area */}
       <div className="chat-container">
-        {/* Header */}
         <header className="chat-header">
-          <h1>Financial News Intelligence</h1>
+          <div>
+            <h1>Financial News Intelligence</h1>
+            <p className="header-subtitle">Authenticated access to public knowledge with per-user history isolation.</p>
+          </div>
         </header>
 
-        {/* Messages Area */}
         <main className="chat-messages">
           {messages.length === 0 ? (
             <div className="welcome">
-              <div className="welcome-icon">📊</div>
-              <h2>How can I help you today?</h2>
-              <p>Ask me about financial news, market updates, or company information.</p>
+              <div className="welcome-icon">FN</div>
+              <h2>Ask about markets, sectors, and company news.</h2>
+              <p>Your account is active. Query results are saved only to your own history.</p>
               <div className="suggestions">
                 {suggestions.map((s) => (
                   <button
@@ -309,7 +563,7 @@ function App() {
               {messages.map((msg, idx) => (
                 <div key={idx} className={`message ${msg.role}`}>
                   <div className="message-avatar">
-                    {msg.role === 'user' ? '👤' : '🤖'}
+                    {msg.role === 'user' ? 'U' : 'AI'}
                   </div>
                   <div className="message-content">
                     {msg.role === 'assistant' && msg.intent && (
@@ -346,7 +600,7 @@ function App() {
               ))}
               {loading && (
                 <div className="message assistant">
-                  <div className="message-avatar">🤖</div>
+                  <div className="message-avatar">AI</div>
                   <div className="message-content">
                     <div className="typing">
                       <span></span>
@@ -361,7 +615,6 @@ function App() {
           )}
         </main>
 
-        {/* Input Area */}
         <footer className="chat-input-area">
           <form onSubmit={handleSubmit} className="chat-form">
             <div className="input-wrapper">
@@ -379,18 +632,14 @@ function App() {
                 disabled={!input.trim() || loading}
                 className="send-btn"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
                 </svg>
               </button>
             </div>
           </form>
           <p className="disclaimer">
-            AI-powered financial news analysis. Results may vary.
+            Public knowledge base is shared. Your private namespace metadata and chat history stay isolated to your account.
           </p>
         </footer>
       </div>

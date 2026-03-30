@@ -163,3 +163,42 @@ class TestPersistenceEdgeCases:
         
         assert isinstance(hash_val, str)
         assert len(hash_val) > 0
+
+    def test_load_vector_store_from_legacy_public_storage(self, temp_storage_dir, sample_processed_article):
+        """Test loading legacy global storage through a namespaced persistence manager."""
+        legacy_store = VectorStore(dimension=768, use_hnsw=False)
+        legacy_store.add([UniqueStory(id="legacy-story", primary_article=sample_processed_article)])
+
+        legacy_pm = PersistenceManager(storage_dir=temp_storage_dir)
+        legacy_pm.save_vector_store(legacy_store)
+        legacy_pm.mark_articles_as_seen([sample_processed_article.article.model_dump()])
+
+        public_storage = Path(temp_storage_dir) / "knowledge" / "public"
+        public_pm = PersistenceManager(
+            storage_dir=str(public_storage),
+            legacy_storage_dir=temp_storage_dir,
+        )
+
+        loaded = public_pm.load_vector_store(dimension=768)
+        seen = public_pm.get_seen_articles()
+
+        assert loaded is not None
+        assert loaded.index.ntotal == 1
+        assert len(seen) == 1
+
+    def test_save_vector_store_writes_to_namespaced_public_storage(self, temp_storage_dir, sample_processed_article):
+        """Test saving after migration writes to the new public namespace path."""
+        public_storage = Path(temp_storage_dir) / "knowledge" / "public"
+        pm = PersistenceManager(
+            storage_dir=str(public_storage),
+            legacy_storage_dir=temp_storage_dir,
+        )
+        vector_store = VectorStore(dimension=768, use_hnsw=False)
+        vector_store.add([UniqueStory(id="public-story", primary_article=sample_processed_article)])
+
+        pm.save_vector_store(vector_store)
+        pm.mark_articles_as_seen([sample_processed_article.article.model_dump()])
+
+        assert (public_storage / "vector_store.pkl").exists()
+        assert (public_storage / "stories.pkl").exists()
+        assert (public_storage / "seen_articles.json").exists()

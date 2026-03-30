@@ -141,3 +141,40 @@ class QueryResult(BaseModel):
     matched_entities: List[Entity] = Field(default_factory=list)
     explanation: Optional[str] = None
     timing: QueryTiming = Field(default_factory=QueryTiming)
+
+
+class User(BaseModel):
+    """Application user."""
+    id: int
+    username: str
+    email: str
+    display_name: Optional[str] = None
+    is_admin: bool = False
+    status: str = "active"
+    created_at: str
+    last_login_at: Optional[str] = None
+
+
+class Session(BaseModel):
+    """Server-side session."""
+    id: int
+    user_id: int
+    expires_at: str
+    created_at: str
+    last_seen_at: Optional[str] = None
+
+
+class KnowledgeNamespace(BaseModel):
+    """Knowledge namespace metadata."""
+    id: int
+    slug: str
+    name: str
+    scope_type: str
+    owner_user_id: Optional[int] = None
+    created_at: str
+
+
+class AuthenticatedUser(User):
+    """Authenticated user enriched with namespace context."""
+    default_private_namespace: Optional[KnowledgeNamespace] = None
+    public_namespace: Optional[KnowledgeNamespace] = None

@@ -70,17 +70,26 @@ class IntelligenceSystem:
         re.compile(r"(比较|对比|相比|谁更|哪个好|哪家更)"),
     )
     
-    def __init__(self, verbose: bool = True, storage_dir: str = "dataset"):
+    def __init__(
+        self,
+        verbose: bool = True,
+        storage_dir: str = "dataset",
+        legacy_storage_dir: Optional[str] = None,
+    ):
         """Initialize the intelligence system.
         
         Args:
             verbose: Print processing information
             storage_dir: Directory for persistence files
+            legacy_storage_dir: Optional fallback directory used for read compatibility
         """
         load_dotenv()
         
         self.verbose = verbose
-        self.persistence = PersistenceManager(storage_dir=storage_dir)
+        self.persistence = PersistenceManager(
+            storage_dir=storage_dir,
+            legacy_storage_dir=legacy_storage_dir,
+        )
         self._vector_store: Optional[VectorStore] = None
         self._ingestion_graph = None
         self._query_graph = None
