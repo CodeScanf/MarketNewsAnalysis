@@ -1,30 +1,30 @@
 Intent Routing Evaluation
 ================================================================================
-Examples: 60
-Correct:  43
-Accuracy: 71.67%
-Macro F1: 71.97%
+Examples: 120
+Correct:  75
+Accuracy: 62.50%
+Macro F1: 62.89%
 
 Per-Class Metrics
 --------------------------------------------------------------------------------
-general_chat     support= 20  precision=58.33%  recall=70.00%  f1=63.64%
-news_update      support= 20  precision=100.00%  recall=60.00%  f1=75.00%
-financial_query  support= 20  precision=70.83%  recall=85.00%  f1=77.27%
+general_chat     support= 40  precision=46.94%  recall=57.50%  f1=51.69%
+news_update      support= 40  precision=100.00%  recall=50.00%  f1=66.67%
+financial_query  support= 40  precision=62.75%  recall=80.00%  f1=70.33%
 
 Accuracy by Difficulty
 --------------------------------------------------------------------------------
-easy     count= 33  accuracy=78.79%
-hard     count=  6  accuracy=83.33%
-medium   count= 21  accuracy=57.14%
+easy     count= 58  accuracy=72.41%
+hard     count= 12  accuracy=66.67%
+medium   count= 50  accuracy=50.00%
 
 Confusion Matrix
 --------------------------------------------------------------------------------
 expected \ predicted  general_chat      news_update       financial_query   
-general_chat          14                0                 6                 
-news_update           7                 12                1                 
-financial_query       3                 0                 17                
+general_chat          23                0                 17                
+news_update           18                20                2                 
+financial_query       8                 0                 32                
 
-First 17 Errors
+First 20 Errors
 --------------------------------------------------------------------------------
 [g008] expected=general_chat predicted=financial_query source=rule
 query: 帮我把这句话翻译成英文：泡泡玛特主动降温
@@ -110,4 +110,20 @@ note: Theme + event retrieval.
 query: 给我看看最近和地产债相关的新闻
 reason: No strong finance or refresh signals found.
 note: Topic retrieval.
+
+[g022] expected=general_chat predicted=financial_query source=rule
+query: 给我一个适合新手的港股学习计划
+reason: Matched a single finance keyword.
+note: Learning roadmap request.
+
+[g023] expected=general_chat predicted=financial_query source=rule
+query: 帮我把这段财报总结成三句话
+reason: Matched a single finance keyword.
+note: Summarization request, not retrieval.
+
+[g024] expected=general_chat predicted=financial_query source=rule
+query: 把这句话翻译成中文：the market is pricing in rate cuts
+reason: Matched a single finance keyword.
+note: Translation task with finance words.
+
 

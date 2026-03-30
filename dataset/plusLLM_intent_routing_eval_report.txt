@@ -1,30 +1,30 @@
 Intent Routing Evaluation
 ================================================================================
-Examples: 60
-Correct:  58
+Examples: 120
+Correct:  116
 Accuracy: 96.67%
 Macro F1: 96.66%
 
 Per-Class Metrics
 --------------------------------------------------------------------------------
-general_chat     support= 20  precision=100.00%  recall=90.00%  f1=94.74%
-news_update      support= 20  precision=100.00%  recall=100.00%  f1=100.00%
-financial_query  support= 20  precision=90.91%  recall=100.00%  f1=95.24%
+general_chat     support= 40  precision=100.00%  recall=90.00%  f1=94.74%
+news_update      support= 40  precision=100.00%  recall=100.00%  f1=100.00%
+financial_query  support= 40  precision=90.91%  recall=100.00%  f1=95.24%
 
 Accuracy by Difficulty
 --------------------------------------------------------------------------------
-easy     count= 33  accuracy=96.97%
-hard     count=  6  accuracy=83.33%
-medium   count= 21  accuracy=100.00%
+easy     count= 58  accuracy=98.28%
+hard     count= 12  accuracy=91.67%
+medium   count= 50  accuracy=96.00%
 
 Confusion Matrix
 --------------------------------------------------------------------------------
 expected \ predicted  general_chat      news_update       financial_query   
-general_chat          18                0                 2                 
-news_update           0                 20                0                 
-financial_query       0                 0                 20                
+general_chat          36                0                 4                 
+news_update           0                 40                0                 
+financial_query       0                 0                 40                
 
-First 2 Errors
+First 4 Errors
 --------------------------------------------------------------------------------
 [g008] expected=general_chat predicted=financial_query source=rule
 query: 帮我把这句话翻译成英文：泡泡玛特主动降温
@@ -35,4 +35,14 @@ note: Translation request should bypass retrieval.
 query: 什么叫股票回购
 reason: Matched multiple finance or sector keywords.
 note: Finance vocabulary explanation.
+
+[g031] expected=general_chat predicted=financial_query source=rule
+query: Explain what a stock split means
+reason: Matched multiple finance or sector keywords.
+note: English concept explanation.
+
+[g038] expected=general_chat predicted=financial_query source=rule
+query: 给我一个研究港股消费行业的学习顺序
+reason: Matched multiple finance or sector keywords.
+note: Learning framework request.
 
