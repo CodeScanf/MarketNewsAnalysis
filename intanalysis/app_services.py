@@ -34,6 +34,124 @@ class KnowledgeContext:
     default_private_namespace: Optional[KnowledgeNamespace] = None
 
 
+class RecommendationService:
+    """Run the recommendation workflow against chat history and a vector store."""
+
+    FEED_LIMIT = 10
+    APP_TZ = timezone(timedelta(hours=8))
+    EMPTY_FEED_SUMMARY = "今天暂时没有新的推荐卡片了。"
+
+    def __init__(self, db: "AppDatabase", chat_history: "ChatHistoryManager"):
+        self.db = db
+        self.chat_history = chat_history
+        self._graph = None
+
+    @property
+    def graph(self):
+        if self._graph is None:
+            from intanalysis.workflow import build_recommendation_graph
+
+            self._graph = build_recommendation_graph()
+        return self._graph
+
+    def get_recommendations(
+        self,
+        user_id: int,
+        vector_store,
+        storage_dir: str | Path,
+    ) -> dict:
+        """Build or return the daily recommendation snapshot for the current user."""
+        served_date = self._served_date_key()
+        snapshot = self.get_daily_snapshot(user_id, served_date)
+        if snapshot is not None:
+            return snapshot
+
+        state = {
+            "user_id": user_id,
+            "storage_dir": str(Path(storage_dir)),
+            "vector_store": vector_store,
+            "chat_loader": self.chat_history.get_recent_chats,
+            "errors": [],
+        }
+        result = self.graph.invoke(state)
+        cards = result.get("cards", [])[: self.FEED_LIMIT]
+        response = {
+            "mode": result.get("recommendation_mode", "latest"),
+            "feed_summary": result.get("feed_summary", "") if cards else self.EMPTY_FEED_SUMMARY,
+            "cards": cards,
+        }
+        self.save_daily_snapshot(user_id=user_id, served_date=served_date, response=response)
+
+        saved_snapshot = self.get_daily_snapshot(user_id, served_date)
+        return saved_snapshot if saved_snapshot is not None else response
+
+    @classmethod
+    def _served_date_key(cls, now: Optional[datetime] = None) -> str:
+        """Return the recommendation snapshot date key."""
+        current = now.astimezone(cls.APP_TZ) if now is not None else datetime.now(cls.APP_TZ)
+        return current.date().isoformat()
+
+    def get_daily_snapshot(self, user_id: int, served_date: str) -> Optional[dict]:
+        """Return the saved daily recommendation snapshot for a user."""
+        with self.db.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT recommendation_mode, feed_summary, cards_json
+                FROM recommendation_snapshots
+                WHERE user_id = ? AND served_date = ?
+                """,
+                (user_id, served_date),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "mode": row["recommendation_mode"],
+            "feed_summary": row["feed_summary"] or "",
+            "cards": json.loads(row["cards_json"]) if row["cards_json"] else [],
+        }
+
+    def save_daily_snapshot(self, user_id: int, served_date: str, response: dict) -> None:
+        """Persist the user's recommendation snapshot for the current day."""
+        mode = response.get("mode", "latest")
+        cards = response.get("cards", [])
+        created_at = utc_timestamp()
+        with self.db.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO recommendation_snapshots (
+                    user_id, served_date, recommendation_mode, feed_summary, cards_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    served_date,
+                    mode,
+                    response.get("feed_summary", ""),
+                    json.dumps(cards, ensure_ascii=False),
+                    created_at,
+                ),
+            )
+            if cursor.rowcount <= 0 or not cards:
+                return
+            cursor.executemany(
+                """
+                INSERT OR IGNORE INTO recommendation_impressions (
+                    user_id, story_id, recommendation_mode, served_date, created_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (user_id, story_id, mode, served_date, created_at)
+                    for story_id in [card.get("story_id") for card in cards]
+                    if story_id
+                ],
+            )
+
+
 class AppDatabase:
     """SQLite-backed application database."""
 
@@ -121,6 +239,35 @@ class AppDatabase:
             )
             cursor.execute(
                 """
+                CREATE TABLE IF NOT EXISTS recommendation_impressions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    story_id TEXT NOT NULL,
+                    recommendation_mode TEXT NOT NULL,
+                    served_date TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    UNIQUE(user_id, story_id, served_date)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS recommendation_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    served_date TEXT NOT NULL,
+                    recommendation_mode TEXT NOT NULL,
+                    feed_summary TEXT NOT NULL,
+                    cards_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    UNIQUE(user_id, served_date)
+                )
+                """
+            )
+            cursor.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_sessions_user_id
                 ON sessions(user_id)
                 """
@@ -141,6 +288,18 @@ class AppDatabase:
                 """
                 CREATE INDEX IF NOT EXISTS idx_chats_user_created_at
                 ON chats(user_id, created_at DESC)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_recommendation_impressions_user_date
+                ON recommendation_impressions(user_id, served_date)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_recommendation_snapshots_user_date
+                ON recommendation_snapshots(user_id, served_date)
                 """
             )
             for statement in (

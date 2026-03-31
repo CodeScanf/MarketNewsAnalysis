@@ -1,4 +1,4 @@
-"""API tests for auth, session handling, and chat isolation."""
+"""API tests for auth, session handling, chat isolation, and recommendations."""
 
 import tempfile
 from pathlib import Path
@@ -7,6 +7,8 @@ from typing import Optional
 from fastapi.testclient import TestClient
 
 from api.main import create_app
+from intanalysis.embeddings import VectorStore
+from intanalysis.models import Article, Entity, EntityType, ProcessedArticle, UniqueStory
 
 
 def register_user(
@@ -24,6 +26,46 @@ def register_user(
         "display_name": display_name or username.title(),
     }
     return client.post("/auth/register", json=payload)
+
+
+def build_story(
+    story_id: str,
+    title: str,
+    content: str,
+    published_date: str,
+    entity_name: str,
+    entity_type: EntityType,
+    sectors: Optional[list[str]] = None,
+):
+    """Build a minimal story for recommendation tests."""
+    article = Article(
+        title=title,
+        content=content,
+        source="Test Source",
+        published_date=published_date,
+    )
+    processed = ProcessedArticle(
+        article=article,
+        entities=[Entity(name=entity_name, type=entity_type, confidence=1.0)],
+        sectors=sectors or [],
+        embedding=[0.1] * 768,
+        is_duplicate=False,
+    )
+    return UniqueStory(id=story_id, primary_article=processed, duplicate_articles=[])
+
+
+def seed_public_stories(app, dataset_root: Path, stories: list[UniqueStory]) -> None:
+    """Seed the public vector store with in-memory stories."""
+    services = app.state.services
+    public_namespace = services.context_resolver.get_public_namespace()
+    public_storage = services.context_resolver.get_storage_dir(public_namespace)
+    system = services.system_resolver.get_system(
+        storage_dir=public_storage,
+        legacy_storage_dir=dataset_root,
+    )
+    vector_store = VectorStore(dimension=768, use_hnsw=False)
+    vector_store.stories = stories
+    system._vector_store = vector_store
 
 
 class TestAuthApi:
@@ -96,11 +138,13 @@ class TestAuthApi:
     def test_protected_endpoints_require_authentication(self):
         query_response = self.client.post("/query", json={"query": "HDFC Bank news"})
         chats_response = self.client.get("/chats")
+        recommendations_response = self.client.get("/recommendations")
         ingest_response = self.client.post("/ingest", json={"articles": []})
         stats_response = self.client.get("/stats")
 
         assert query_response.status_code == 401
         assert chats_response.status_code == 401
+        assert recommendations_response.status_code == 401
         assert ingest_response.status_code == 401
         assert stats_response.status_code == 401
 
@@ -161,3 +205,128 @@ class TestAuthApi:
         assert foreign_chat_response.status_code == 404
         assert delete_foreign_response.status_code == 404
         assert own_chat_response.status_code == 200
+
+    def test_recommendations_use_recent_chat_entities(self):
+        user = register_user(self.client, "alice", "alice@example.com").json()
+        story = build_story(
+            story_id="story-company",
+            title="HDFC Bank announces new lending push",
+            content="HDFC Bank expanded lending operations and signaled steady banking demand.",
+            published_date="2026-03-31T09:00:00+00:00",
+            entity_name="HDFC Bank Limited",
+            entity_type=EntityType.COMPANY,
+            sectors=["Banking"],
+        )
+        seed_public_stories(self.app, self.dataset_root, [story])
+        self.app.state.services.chat_history.save_chat(
+            user_id=user["id"],
+            query="HDFC Bank latest update",
+            explanation="summary",
+            stories=[],
+            matched_entities=[{"name": "HDFC Bank Limited", "type": "company"}],
+            markdown_response="markdown",
+            timing={},
+        )
+
+        response = self.client.get("/recommendations")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mode"] == "personalized"
+        assert len(data["cards"]) == 1
+        assert data["cards"][0]["title"] == "HDFC Bank announces new lending push"
+        assert "HDFCBANK" in data["cards"][0]["stock_symbols"]
+
+    def test_recommendations_fall_back_to_latest_stories_without_chat_history(self):
+        register_user(self.client, "alice", "alice@example.com")
+        latest_story = build_story(
+            story_id="story-latest",
+            title="Reserve Bank updates liquidity stance",
+            content="The Reserve Bank of India adjusted liquidity operations and guided banks on funding costs.",
+            published_date="2026-03-31T11:00:00+00:00",
+            entity_name="Reserve Bank of India",
+            entity_type=EntityType.REGULATOR,
+            sectors=["Banking"],
+        )
+        older_story = build_story(
+            story_id="story-older",
+            title="Older banking recap",
+            content="A prior summary of banking developments.",
+            published_date="2026-03-29T08:00:00+00:00",
+            entity_name="Banking",
+            entity_type=EntityType.SECTOR,
+            sectors=["Banking"],
+        )
+        seed_public_stories(self.app, self.dataset_root, [older_story, latest_story])
+
+        response = self.client.get("/recommendations")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mode"] == "latest"
+        assert data["cards"][0]["title"] == "Reserve Bank updates liquidity stance"
+        assert data["cards"][0]["recommendation_label"] == "最新资讯"
+
+    def test_recommendations_repeat_same_snapshot_for_latest_mode(self):
+        register_user(self.client, "alice", "alice@example.com")
+        stories = [
+            build_story(
+                story_id=f"latest-{idx}",
+                title=f"Latest story {idx}",
+                content=f"Latest market recap {idx}",
+                published_date=f"2026-03-{31 - min(idx, 9):02d}T{23 - (idx % 10):02d}:00:00+00:00",
+                entity_name="Banking",
+                entity_type=EntityType.SECTOR,
+                sectors=["Banking"],
+            )
+            for idx in range(12)
+        ]
+        seed_public_stories(self.app, self.dataset_root, stories)
+
+        first = self.client.get("/recommendations")
+        second = self.client.get("/recommendations")
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        first_data = first.json()
+        second_data = second.json()
+        assert first_data["mode"] == "latest"
+        assert len(first_data["cards"]) == 10
+        assert second_data == first_data
+
+    def test_recommendations_repeat_same_snapshot_for_personalized_mode(self):
+        user = register_user(self.client, "alice", "alice@example.com").json()
+        stories = [
+            build_story(
+                story_id=f"personal-{idx}",
+                title=f"HDFC Bank update {idx}",
+                content=f"HDFC Bank expanded lending operations in update {idx}.",
+                published_date=f"2026-03-{31 - min(idx, 9):02d}T{20 - (idx % 10):02d}:00:00+00:00",
+                entity_name="HDFC Bank Limited",
+                entity_type=EntityType.COMPANY,
+                sectors=["Banking"],
+            )
+            for idx in range(12)
+        ]
+        seed_public_stories(self.app, self.dataset_root, stories)
+        self.app.state.services.chat_history.save_chat(
+            user_id=user["id"],
+            query="HDFC Bank latest update",
+            explanation="summary",
+            stories=[],
+            matched_entities=[{"name": "HDFC Bank Limited", "type": "company"}],
+            markdown_response="markdown",
+            timing={},
+        )
+
+        first = self.client.get("/recommendations")
+        second = self.client.get("/recommendations")
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        first_data = first.json()
+        second_data = second.json()
+        assert first_data["mode"] == "personalized"
+        assert second_data["mode"] == "personalized"
+        assert len(first_data["cards"]) == 10
+        assert second_data == first_data

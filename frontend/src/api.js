@@ -30,6 +30,11 @@ export const getCurrentUser = async () => {
   return response.data;
 };
 
+export const getRecommendations = async () => {
+  const response = await api.get('/recommendations');
+  return response.data;
+};
+
 export const queryNews = async (query, history = []) => {
   const started = performance.now();
   const response = await api.post('/query', { query, history });

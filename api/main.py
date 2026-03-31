@@ -18,6 +18,7 @@ from intanalysis.app_services import (
     ChatHistoryManager,
     IntelligenceSystemResolver,
     KnowledgeContextResolver,
+    RecommendationService,
     build_authenticated_user,
 )
 from intanalysis.models import AuthenticatedUser, ConversationTurn, QueryIntent, QueryTiming
@@ -52,6 +53,7 @@ class AppServices:
     context_resolver: KnowledgeContextResolver
     system_resolver: IntelligenceSystemResolver
     chat_history: ChatHistoryManager
+    recommendation_service: RecommendationService
 
 
 class ArticleInput(BaseModel):
@@ -149,6 +151,28 @@ class StatsResponse(BaseModel):
 
     indexed_stories: int
     total_stories: int
+
+
+class RecommendationCardResponse(BaseModel):
+    """Recommendation card payload."""
+
+    story_id: str
+    title: str
+    source: Optional[str] = None
+    published_date: Optional[str] = None
+    summary: str
+    matched_entities: List[str] = Field(default_factory=list)
+    stock_symbols: List[str] = Field(default_factory=list)
+    recommendation_label: str
+    recommendation_reason: str
+
+
+class RecommendationsResponse(BaseModel):
+    """Recommendation feed payload."""
+
+    mode: str
+    feed_summary: str
+    cards: List[RecommendationCardResponse] = Field(default_factory=list)
 
 
 class RegisterRequest(BaseModel):
@@ -409,13 +433,16 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
         allow_headers=["*"],
     )
 
+    chat_history = ChatHistoryManager(app_db)
+
     app.state.services = AppServices(
         dataset_root=dataset_path,
         app_db=app_db,
         auth_service=AuthService(app_db),
         context_resolver=KnowledgeContextResolver(app_db, str(dataset_path)),
         system_resolver=IntelligenceSystemResolver(verbose=verbose),
-        chat_history=ChatHistoryManager(app_db),
+        chat_history=chat_history,
+        recommendation_service=RecommendationService(app_db, chat_history),
     )
     services = app.state.services
 
@@ -432,6 +459,7 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
                 "POST /auth/logout": "Logout the current user",
                 "GET /auth/me": "Get current session user",
                 "POST /query": "Route and answer a user query",
+                "GET /recommendations": "Get recommendation cards from recent chats or latest news",
                 "POST /ingest": "Ingest articles into the public knowledge base",
                 "GET /stats": "Get public knowledge base statistics",
                 "GET /health": "Service health",
@@ -610,6 +638,30 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
                 explanation=result.explanation,
                 markdown_response=markdown,
                 timing=result.timing,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get("/recommendations", response_model=RecommendationsResponse)
+    async def get_recommendations(current_user: AuthenticatedUser = Depends(get_current_user)):
+        """Return homepage recommendation cards for the current user."""
+        public_namespace = services.context_resolver.get_public_namespace()
+        public_storage = services.context_resolver.get_storage_dir(public_namespace)
+        system = services.system_resolver.get_system(
+            storage_dir=public_storage,
+            legacy_storage_dir=services.dataset_root,
+        )
+
+        try:
+            result = services.recommendation_service.get_recommendations(
+                user_id=current_user.id,
+                vector_store=system.vector_store,
+                storage_dir=public_storage,
+            )
+            return RecommendationsResponse(
+                mode=result["mode"],
+                feed_summary=result["feed_summary"],
+                cards=[RecommendationCardResponse(**card) for card in result.get("cards", [])],
             )
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc

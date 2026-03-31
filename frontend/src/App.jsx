@@ -5,6 +5,7 @@ import {
   deleteChat,
   getChatHistory,
   getCurrentUser,
+  getRecommendations,
   loginUser,
   logoutUser,
   queryNews,
@@ -65,6 +66,8 @@ function App() {
   const [chatHistory, setChatHistory] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [recommendationLoading, setRecommendationLoading] = useState(false);
+  const [recommendations, setRecommendations] = useState({ mode: 'latest', feed_summary: '', cards: [] });
   const [sessionLoading, setSessionLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [authMode, setAuthMode] = useState('login');
@@ -98,10 +101,11 @@ function App() {
     try {
       const user = await getCurrentUser();
       setCurrentUser(user);
-      await loadChatHistory();
+      await Promise.all([loadChatHistory(), loadRecommendations()]);
     } catch (err) {
       setCurrentUser(null);
       setChatHistory([]);
+      setRecommendations({ mode: 'latest', feed_summary: '', cards: [] });
     } finally {
       setSessionLoading(false);
     }
@@ -122,6 +126,29 @@ function App() {
       }
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const loadRecommendations = async () => {
+    setRecommendationLoading(true);
+    try {
+      const data = await getRecommendations();
+      setRecommendations({
+        mode: data.mode || 'latest',
+        feed_summary: data.feed_summary || '',
+        cards: data.cards || [],
+      });
+    } catch (err) {
+      if (err.response?.status === 401) {
+        setCurrentUser(null);
+        setChatHistory([]);
+        setMessages([]);
+        setRecommendations({ mode: 'latest', feed_summary: '', cards: [] });
+      } else {
+        console.error('Failed to load recommendations:', err);
+      }
+    } finally {
+      setRecommendationLoading(false);
     }
   };
 
@@ -157,7 +184,7 @@ function App() {
       setCurrentUser(user);
       setLoginForm(emptyLoginForm);
       setMessages([]);
-      await loadChatHistory();
+      await Promise.all([loadChatHistory(), loadRecommendations()]);
     } catch (err) {
       setAuthError(err.response?.data?.detail || 'Login failed');
     } finally {
@@ -180,7 +207,7 @@ function App() {
       setCurrentUser(user);
       setRegisterForm(emptyRegisterForm);
       setMessages([]);
-      await loadChatHistory();
+      await Promise.all([loadChatHistory(), loadRecommendations()]);
     } catch (err) {
       setAuthError(err.response?.data?.detail || 'Registration failed');
     } finally {
@@ -197,6 +224,7 @@ function App() {
       setCurrentUser(null);
       setMessages([]);
       setChatHistory([]);
+      setRecommendations({ mode: 'latest', feed_summary: '', cards: [] });
       setAuthError('');
       setLoginForm(emptyLoginForm);
       setRegisterForm(emptyRegisterForm);
@@ -228,7 +256,7 @@ function App() {
           stories: result.stories || [],
         },
       ]);
-      await loadChatHistory();
+      await Promise.all([loadChatHistory(), loadRecommendations()]);
     } catch (err) {
       if (err.response?.status === 401) {
         setCurrentUser(null);
@@ -300,6 +328,7 @@ function App() {
     try {
       await deleteChat(chatId);
       setChatHistory((prev) => prev.filter((c) => c.id !== chatId));
+      await loadRecommendations();
     } catch (err) {
       console.error('Failed to delete chat:', err);
     }
@@ -310,13 +339,16 @@ function App() {
     try {
       await clearChatHistory();
       setChatHistory([]);
+      await loadRecommendations();
     } catch (err) {
       console.error('Failed to clear history:', err);
     }
   };
 
   const formatDate = (dateStr) => {
+    if (!dateStr) return 'Unknown date';
     const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return dateStr;
     const now = new Date();
     const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
 
@@ -324,6 +356,65 @@ function App() {
     if (diffDays === 1) return 'Yesterday';
     if (diffDays < 7) return `${diffDays} days ago`;
     return date.toLocaleDateString();
+  };
+
+  const renderRecommendations = () => {
+    const modeLabel = recommendations.mode === 'personalized' ? '与你最近关注相关' : '最新 10 篇资讯';
+
+    return (
+      <section className="recommendation-section">
+        <div className="recommendation-header">
+          <div>
+            <p className="recommendation-kicker">Daily Cards</p>
+            <h3>{modeLabel}</h3>
+          </div>
+          {recommendationLoading ? <span className="recommendation-status">Loading...</span> : null}
+        </div>
+        <p className="recommendation-summary">
+          {recommendations.feed_summary || '根据你的最近互动整理卡片。'}
+        </p>
+        {recommendations.cards?.length ? (
+          <div className="recommendation-cards">
+            {recommendations.cards.map((card) => (
+              <article key={card.story_id} className="recommendation-card">
+                <div className="recommendation-card-top">
+                  <span>{card.source || 'Unknown source'}</span>
+                  <span>{formatDate(card.published_date)}</span>
+                </div>
+                <h4>{card.title}</h4>
+                <p>{card.summary}</p>
+                {card.matched_entities?.length ? (
+                  <div className="recommendation-tags">
+                    {card.matched_entities.map((entity) => (
+                      <span key={`${card.story_id}-${entity}`} className="recommendation-tag">
+                        {entity}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {card.stock_symbols?.length ? (
+                  <div className="recommendation-stocks">
+                    {card.stock_symbols.map((symbol) => (
+                      <span key={`${card.story_id}-${symbol}`} className="recommendation-stock">
+                        {symbol}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="recommendation-footer">
+                  <strong>{card.recommendation_label}</strong>
+                  <span>{card.recommendation_reason}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="recommendation-empty">
+            Start chatting about companies, sectors, or regulators and recommendation cards will appear here.
+          </div>
+        )}
+      </section>
+    );
   };
 
   if (sessionLoading) {
@@ -542,20 +633,23 @@ function App() {
 
         <main className="chat-messages">
           {messages.length === 0 ? (
-            <div className="welcome">
-              <div className="welcome-icon">FN</div>
-              <h2>Ask about markets, sectors, and company news.</h2>
-              <p>Your account is active. Query results are saved only to your own history.</p>
-              <div className="suggestions">
-                {suggestions.map((s) => (
-                  <button
-                    key={s}
-                    className="suggestion"
-                    onClick={() => setInput(s)}
-                  >
-                    {s}
-                  </button>
-                ))}
+            <div className="dashboard">
+              {renderRecommendations()}
+              <div className="welcome">
+                <div className="welcome-icon">FN</div>
+                <h2>Ask about markets, sectors, and company news.</h2>
+                <p>Your account is active. Query results are saved only to your own history.</p>
+                <div className="suggestions">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s}
+                      className="suggestion"
+                      onClick={() => setInput(s)}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           ) : (

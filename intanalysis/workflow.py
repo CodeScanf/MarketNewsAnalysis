@@ -1,6 +1,6 @@
 """LangGraph workflow for multi-agent orchestration."""
 
-from typing import TypedDict, Optional, Literal
+from typing import Callable, Literal, Optional, TypedDict
 from langgraph.graph import StateGraph, END
 
 from intanalysis.models import Article, UniqueStory, QueryResult
@@ -12,6 +12,13 @@ from intanalysis.agents import (
     StockImpactAgent,
     StorageAgent,
     QueryAgent,
+)
+from intanalysis.recommendations import (
+    build_card,
+    build_feed_summary,
+    collect_personalized_candidates,
+    extract_interest_entities,
+    sort_latest_stories,
 )
 
 
@@ -33,6 +40,18 @@ class PipelineState(TypedDict, total=False):
     # Output
     query_result: Optional[QueryResult]
     errors: list[str]
+
+    # Recommendation inputs / outputs
+    user_id: int
+    storage_dir: str
+    chat_loader: Callable[[int, int], list[dict]]
+    chat_records: list[dict]
+    interest_entities: list[dict]
+    candidate_stories: list[UniqueStory]
+    candidate_matches: dict[str, list[dict]]
+    recommendation_mode: str
+    cards: list[dict]
+    feed_summary: str
 
 
 # Agent singletons
@@ -84,6 +103,75 @@ def query_node(state: PipelineState) -> PipelineState:
     return agent.process(dict(state))
 
 
+def load_chat_context_node(state: PipelineState) -> PipelineState:
+    """Load the current user's recent chat records."""
+    user_id = state.get("user_id")
+    chat_loader = state.get("chat_loader")
+    if user_id is None or chat_loader is None:
+        state["chat_records"] = []
+        return state
+
+    state["chat_records"] = chat_loader(user_id, 10) or []
+    return state
+
+
+def derive_interest_entities_node(state: PipelineState) -> PipelineState:
+    """Extract recommendation entities from recent chats."""
+    state["interest_entities"] = extract_interest_entities(state.get("chat_records", []), limit=10)
+    return state
+
+
+def route_recommendation_mode_node(state: PipelineState) -> PipelineState:
+    """Choose personalized or latest recommendation mode."""
+    state["recommendation_mode"] = "personalized" if state.get("interest_entities") else "latest"
+    return state
+
+
+def collect_candidates_node(state: PipelineState) -> PipelineState:
+    """Collect candidate stories for recommendation cards."""
+    candidate_limit = 50
+    vector_store = state.get("vector_store")
+    stories = list(vector_store.stories) if vector_store else []
+    mode = state.get("recommendation_mode", "latest")
+
+    candidate_stories: list[UniqueStory] = []
+    candidate_matches: dict[str, list[dict]] = {}
+
+    if mode == "personalized":
+        candidates = collect_personalized_candidates(
+            stories,
+            state.get("interest_entities", []),
+            limit=candidate_limit,
+        )
+        if candidates:
+            candidate_stories = [story for story, _ in candidates]
+            candidate_matches = {story.id: matches for story, matches in candidates}
+        else:
+            mode = "latest"
+
+    if mode == "latest":
+        candidate_stories = sort_latest_stories(stories, limit=candidate_limit)
+        candidate_matches = {story.id: [] for story in candidate_stories}
+
+    state["recommendation_mode"] = mode
+    state["candidate_stories"] = candidate_stories
+    state["candidate_matches"] = candidate_matches
+    return state
+
+
+def build_cards_node(state: PipelineState) -> PipelineState:
+    """Build final recommendation cards and summary."""
+    mode = state.get("recommendation_mode", "latest")
+    candidate_matches = state.get("candidate_matches", {})
+    cards = [
+        build_card(story, mode, candidate_matches.get(story.id, []))
+        for story in state.get("candidate_stories", [])
+    ]
+    state["cards"] = cards
+    state["feed_summary"] = build_feed_summary(mode, cards, state.get("interest_entities", []))
+    return state
+
+
 # Routing functions
 def route_start(state: PipelineState) -> Literal["query_step", "ingestion"]:
     """Route based on whether this is a query or ingestion."""
@@ -130,6 +218,25 @@ def build_query_graph() -> StateGraph:
     graph.set_entry_point("query_step")
     graph.add_edge("query_step", END)
     
+    return graph.compile()
+
+
+def build_recommendation_graph() -> StateGraph:
+    """Build the recommendation workflow graph."""
+    graph = StateGraph(PipelineState)
+    graph.add_node("load_chat_context", load_chat_context_node)
+    graph.add_node("derive_interest_entities", derive_interest_entities_node)
+    graph.add_node("route_recommendation_mode", route_recommendation_mode_node)
+    graph.add_node("collect_candidates", collect_candidates_node)
+    graph.add_node("build_cards", build_cards_node)
+
+    graph.set_entry_point("load_chat_context")
+    graph.add_edge("load_chat_context", "derive_interest_entities")
+    graph.add_edge("derive_interest_entities", "route_recommendation_mode")
+    graph.add_edge("route_recommendation_mode", "collect_candidates")
+    graph.add_edge("collect_candidates", "build_cards")
+    graph.add_edge("build_cards", END)
+
     return graph.compile()
 
 

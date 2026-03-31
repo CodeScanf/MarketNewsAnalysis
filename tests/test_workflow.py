@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 
 from intanalysis.workflow import (
-    PipelineState, build_ingestion_graph, build_query_graph, build_full_graph,
+    PipelineState, build_ingestion_graph, build_query_graph, build_full_graph, build_recommendation_graph,
     ingestion_node, deduplication_node, entity_extraction_node,
     stock_impact_node, storage_node, query_node,
     route_start, should_continue, _get_agent
@@ -55,7 +55,7 @@ class TestRoutingFunctions:
         }
         
         result = route_start(state)
-        assert result == "query"
+        assert result == "query_step"
     
     def test_route_start_ingestion_path(self):
         """Test routing to ingestion path."""
@@ -143,6 +143,12 @@ class TestGraphBuilders:
         """Test that full graph has expected structure."""
         graph = build_full_graph()
         
+        assert graph is not None
+
+    def test_build_recommendation_graph_structure(self):
+        """Test that recommendation graph compiles successfully."""
+        graph = build_recommendation_graph()
+
         assert graph is not None
 
 
@@ -271,3 +277,51 @@ class TestGraphExecution:
         
         assert "query_result" in result
         assert result["query_result"].query == "test query"
+
+    def test_recommendation_graph_latest_mode(self, sample_unique_story):
+        """Test recommendation graph falls back to latest stories without chat history."""
+        graph = build_recommendation_graph()
+
+        vs = VectorStore(dimension=768, use_hnsw=False)
+        sample_unique_story.primary_article.article.published_date = "2026-03-31T08:00:00+00:00"
+        vs.stories = [sample_unique_story]
+        state: PipelineState = {
+            "user_id": 1,
+            "chat_loader": lambda user_id, limit: [],
+            "vector_store": vs,
+            "errors": [],
+        }
+
+        result = graph.invoke(state)
+
+        assert result["recommendation_mode"] == "latest"
+        assert len(result["cards"]) == 1
+        assert result["cards"][0]["title"] == sample_unique_story.primary_article.article.title
+
+    def test_recommendation_graph_personalized_mode(self, sample_unique_story):
+        """Test recommendation graph uses recent chat entities for personalized cards."""
+        graph = build_recommendation_graph()
+
+        vs = VectorStore(dimension=768, use_hnsw=False)
+        sample_unique_story.primary_article.article.published_date = "2026-03-31T09:30:00+00:00"
+        vs.stories = [sample_unique_story]
+        state: PipelineState = {
+            "user_id": 7,
+            "chat_loader": lambda user_id, limit: [
+                {
+                    "query": "HDFC Bank latest news",
+                    "matched_entities": [{"name": "HDFC Bank Limited", "type": "company"}],
+                    "stories": [],
+                    "created_at": "2026-03-31T09:00:00+00:00",
+                }
+            ],
+            "vector_store": vs,
+            "errors": [],
+        }
+
+        result = graph.invoke(state)
+
+        assert result["recommendation_mode"] == "personalized"
+        assert len(result["cards"]) == 1
+        assert result["cards"][0]["recommendation_label"] == "重点关注公司"
+        assert "HDFCBANK" in result["cards"][0]["stock_symbols"]
