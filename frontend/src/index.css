@@ -274,6 +274,38 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-nav-item {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0.7rem 0.8rem;
+  text-align: left;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sidebar-nav-item:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.sidebar-nav-item.active {
+  background: rgba(233, 105, 44, 0.14);
+  border-color: rgba(233, 105, 44, 0.28);
+  color: var(--text-primary);
+}
+
 .sidebar-user-meta {
   display: flex;
   flex-direction: column;
@@ -442,6 +474,10 @@ body {
   flex-direction: column;
   gap: 1.25rem;
   padding: 1.25rem 1.5rem 1.5rem;
+}
+
+.dashboard-recommendations {
+  min-height: 100%;
 }
 
 .recommendation-section {

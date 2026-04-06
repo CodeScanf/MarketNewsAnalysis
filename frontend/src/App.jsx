@@ -60,6 +60,7 @@ const emptyLoginForm = {
 };
 
 function App() {
+  const [activeView, setActiveView] = useState('chat');
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -286,11 +287,13 @@ function App() {
   };
 
   const handleNewChat = () => {
+    setActiveView('chat');
     setMessages([]);
     inputRef.current?.focus();
   };
 
   const handleSelectChat = (chat) => {
+    setActiveView('chat');
     const reconstructed = [{ role: 'user', content: chat.query }];
 
     let markdown = chat.markdown_response;
@@ -416,6 +419,28 @@ function App() {
       </section>
     );
   };
+
+  const renderWelcome = () => (
+    <div className="welcome">
+      <div className="welcome-icon">FN</div>
+      <h2>Ask about markets, sectors, and company news.</h2>
+      <p>Your account is active. Query results are saved only to your own history.</p>
+      <div className="suggestions">
+        {suggestions.map((s) => (
+          <button
+            key={s}
+            className="suggestion"
+            onClick={() => {
+              setActiveView('chat');
+              setInput(s);
+            }}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 
   if (sessionLoading) {
     return (
@@ -574,6 +599,23 @@ function App() {
           </button>
         </div>
 
+        <div className="sidebar-nav">
+          <button
+            className={`sidebar-nav-item ${activeView === 'chat' ? 'active' : ''}`}
+            onClick={() => setActiveView('chat')}
+            type="button"
+          >
+            Chat
+          </button>
+          <button
+            className={`sidebar-nav-item ${activeView === 'recommendations' ? 'active' : ''}`}
+            onClick={() => setActiveView('recommendations')}
+            type="button"
+          >
+            Daily Recommendations
+          </button>
+        </div>
+
         <div className="chat-history">
           {historyLoading ? (
             <div className="history-loading">Loading...</div>
@@ -632,25 +674,13 @@ function App() {
         </header>
 
         <main className="chat-messages">
-          {messages.length === 0 ? (
-            <div className="dashboard">
+          {activeView === 'recommendations' ? (
+            <div className="dashboard dashboard-recommendations">
               {renderRecommendations()}
-              <div className="welcome">
-                <div className="welcome-icon">FN</div>
-                <h2>Ask about markets, sectors, and company news.</h2>
-                <p>Your account is active. Query results are saved only to your own history.</p>
-                <div className="suggestions">
-                  {suggestions.map((s) => (
-                    <button
-                      key={s}
-                      className="suggestion"
-                      onClick={() => setInput(s)}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="dashboard">
+              {renderWelcome()}
             </div>
           ) : (
             <div className="messages-list">
@@ -709,33 +739,35 @@ function App() {
           )}
         </main>
 
-        <footer className="chat-input-area">
-          <form onSubmit={handleSubmit} className="chat-form">
-            <div className="input-wrapper">
-              <input
-                ref={inputRef}
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="输入通识问题、更新新闻，或直接问金融问题..."
-                disabled={loading}
-              />
-              <button
-                type="submit"
-                disabled={!input.trim() || loading}
-                className="send-btn"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-                </svg>
-              </button>
-            </div>
-          </form>
-          <p className="disclaimer">
-            Public knowledge base is shared. Your private namespace metadata and chat history stay isolated to your account.
-          </p>
-        </footer>
+        {activeView === 'chat' ? (
+          <footer className="chat-input-area">
+            <form onSubmit={handleSubmit} className="chat-form">
+              <div className="input-wrapper">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="输入通识问题、更新新闻，或直接问金融问题..."
+                  disabled={loading}
+                />
+                <button
+                  type="submit"
+                  disabled={!input.trim() || loading}
+                  className="send-btn"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                  </svg>
+                </button>
+              </div>
+            </form>
+            <p className="disclaimer">
+              Public knowledge base is shared. Your private namespace metadata and chat history stay isolated to your account.
+            </p>
+          </footer>
+        ) : null}
       </div>
     </div>
   );
