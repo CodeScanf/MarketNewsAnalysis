@@ -231,6 +231,7 @@ class AppDatabase:
                     stories_count INTEGER DEFAULT 0,
                     stories_json TEXT,
                     matched_entities_json TEXT,
+                    attachments_json TEXT,
                     timing_json TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -305,6 +306,7 @@ class AppDatabase:
             for statement in (
                 "ALTER TABLE chats ADD COLUMN intent TEXT NOT NULL DEFAULT 'financial_query'",
                 "ALTER TABLE chats ADD COLUMN intent_source TEXT NOT NULL DEFAULT 'pipeline'",
+                "ALTER TABLE chats ADD COLUMN attachments_json TEXT",
             ):
                 try:
                     cursor.execute(statement)
@@ -637,6 +639,7 @@ class ChatHistoryManager:
         explanation: Optional[str],
         stories: list,
         matched_entities: list,
+        attachments: Optional[list[dict]] = None,
         markdown_response: Optional[str] = None,
         timing: Optional[dict] = None,
         intent: Optional[str] = None,
@@ -662,6 +665,7 @@ class ChatHistoryManager:
                 for e in matched_entities
             ]
         )
+        attachments_json = json.dumps(attachments or [], ensure_ascii=False)
         timing_json = json.dumps(timing) if timing else None
 
         with self.db.connection() as conn:
@@ -671,9 +675,9 @@ class ChatHistoryManager:
                 INSERT INTO chats (
                     user_id, query, intent, intent_source, explanation,
                     markdown_response, stories_count, stories_json,
-                    matched_entities_json, timing_json, created_at
+                    matched_entities_json, attachments_json, timing_json, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
@@ -685,6 +689,7 @@ class ChatHistoryManager:
                     len(stories),
                     stories_json,
                     entities_json,
+                    attachments_json,
                     timing_json,
                     utc_timestamp(),
                 ),
@@ -698,7 +703,7 @@ class ChatHistoryManager:
             cursor.execute(
                 """
                 SELECT id, query, intent, intent_source, explanation, markdown_response,
-                       stories_count, stories_json, matched_entities_json, timing_json, created_at
+                       stories_count, stories_json, matched_entities_json, attachments_json, timing_json, created_at
                 FROM chats
                 WHERE user_id = ?
                 ORDER BY created_at DESC
@@ -716,7 +721,7 @@ class ChatHistoryManager:
             cursor.execute(
                 """
                 SELECT id, query, intent, intent_source, explanation, markdown_response,
-                       stories_count, stories_json, matched_entities_json, timing_json, created_at
+                       stories_count, stories_json, matched_entities_json, attachments_json, timing_json, created_at
                 FROM chats
                 WHERE user_id = ? AND id = ?
                 """,
@@ -732,7 +737,7 @@ class ChatHistoryManager:
             cursor.execute(
                 """
                 SELECT id, query, intent, intent_source, explanation, markdown_response,
-                       stories_count, stories_json, matched_entities_json, timing_json, created_at
+                       stories_count, stories_json, matched_entities_json, attachments_json, timing_json, created_at
                 FROM chats
                 WHERE user_id = ? AND query LIKE ?
                 ORDER BY created_at DESC
@@ -775,6 +780,7 @@ class ChatHistoryManager:
             "stories_count": row["stories_count"],
             "stories": json.loads(row["stories_json"]) if row["stories_json"] else [],
             "matched_entities": json.loads(row["matched_entities_json"]) if row["matched_entities_json"] else [],
+            "attachments": json.loads(row["attachments_json"]) if row["attachments_json"] else [],
             "timing": json.loads(row["timing_json"]) if row["timing_json"] else None,
             "created_at": row["created_at"],
         }

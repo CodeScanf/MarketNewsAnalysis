@@ -33,10 +33,12 @@ dependencies = [
     "python-dotenv>=1.0.0",
     # API
     "fastapi>=0.104.0",
+    "python-multipart>=0.0.9",
     "uvicorn>=0.24.0",
 
     # Dataset 
-    "feedparser>=6.0.12"
+    "feedparser>=6.0.12",
+    "pypdf>=5.4.0"
 ]
 
 [project.optional-dependencies]

@@ -246,3 +246,79 @@ You MUST respond with ONLY a valid JSON object in this exact format (no other te
             "explanation": response,
             "relevant_indices": list(range(len(results[:10])))
         }
+
+    def explain_query_results_with_attachments(
+        self,
+        query: str,
+        results: list[dict],
+        attachment_blocks: list[dict],
+    ) -> dict:
+        """Generate an answer from indexed news plus attachment evidence."""
+        numbered_results = []
+        for i, result in enumerate(results[:10]):
+            numbered_results.append(
+                {
+                    "index": i,
+                    "title": result.get("title", ""),
+                    "source": result.get("source", ""),
+                    "content": result.get("content", "")[:500],
+                    "entities": result.get("entities", []),
+                }
+            )
+
+        numbered_blocks = []
+        for i, block in enumerate(attachment_blocks[:8]):
+            numbered_blocks.append(
+                {
+                    "index": i,
+                    "file_name": block.get("file_name", ""),
+                    "page_no": block.get("page_no", 1),
+                    "block_type": block.get("block_type", "paragraph"),
+                    "content": block.get("content", "")[:700],
+                }
+            )
+
+        prompt = f"""You are a financial research assistant. Answer the user's question using the retrieved news articles and uploaded attachment snippets.
+
+User Question: {query}
+
+News Articles:
+{json.dumps(numbered_results, indent=2, ensure_ascii=False)}
+
+Attachment Snippets:
+{json.dumps(numbered_blocks, indent=2, ensure_ascii=False)}
+
+Instructions:
+1. Use only the provided evidence.
+2. Prefer attachment snippets when the user is clearly asking about the uploaded file.
+3. Return only directly relevant news articles and attachment snippets.
+4. If nothing is relevant, say so clearly.
+
+You MUST respond with ONLY valid JSON in this exact shape:
+{{"explanation": "2-4 sentence answer", "relevant_indices": [0], "relevant_attachment_indices": [0, 1]}}"""
+
+        response = self.generate(
+            prompt,
+            "You are a JSON-only response assistant. Output valid JSON only, no markdown.",
+            max_tokens=700,
+        )
+
+        try:
+            clean_response = response.strip()
+            if clean_response.startswith("```"):
+                clean_response = re.sub(r'^```(?:json)?\s*', '', clean_response)
+                clean_response = re.sub(r'\s*```$', '', clean_response)
+
+            parsed = json.loads(clean_response)
+            if "explanation" in parsed:
+                parsed.setdefault("relevant_indices", [])
+                parsed.setdefault("relevant_attachment_indices", [])
+                return parsed
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+        return {
+            "explanation": response,
+            "relevant_indices": list(range(len(results[:10]))),
+            "relevant_attachment_indices": list(range(len(attachment_blocks[:8]))),
+        }

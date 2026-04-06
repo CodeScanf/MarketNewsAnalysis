@@ -103,6 +103,38 @@ class QueryTiming(BaseModel):
     stages: dict[str, float] = Field(default_factory=dict)
 
 
+class AttachmentBlock(BaseModel):
+    """Normalized text block extracted from an uploaded attachment."""
+    block_id: str
+    page_no: int = 1
+    block_type: str = "paragraph"
+    text: str
+    bbox: Optional[List[float]] = None
+    confidence: float = 1.0
+
+
+class AttachmentEvidence(BaseModel):
+    """Evidence snippet returned to the client from an attachment."""
+    file_name: str
+    page_no: int = 1
+    block_type: str = "paragraph"
+    snippet: str
+    score: float = 0.0
+    bbox: Optional[List[float]] = None
+    confidence: float = 1.0
+
+
+class AttachmentContext(BaseModel):
+    """Parsed attachment content used only for the current query."""
+    file_name: str
+    file_type: str
+    summary: str = ""
+    query_text: str = ""
+    page_count: int = 0
+    blocks: List[AttachmentBlock] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
 class ConversationTurn(BaseModel):
     """Recent conversation turn passed in from the client."""
     role: str
@@ -140,6 +172,8 @@ class QueryResult(BaseModel):
     stories: List[UniqueStory] = Field(default_factory=list)
     matched_entities: List[Entity] = Field(default_factory=list)
     explanation: Optional[str] = None
+    attachment_summary: Optional[str] = None
+    attachment_evidence: List[AttachmentEvidence] = Field(default_factory=list)
     timing: QueryTiming = Field(default_factory=QueryTiming)
 
 

@@ -13,6 +13,7 @@ load_dotenv()
 
 from intanalysis.models import (
     Article,
+    AttachmentContext,
     ConversationTurn,
     QueryIntent,
     QueryResult,
@@ -215,7 +216,12 @@ class IntelligenceSystem:
             "skipped_count": skipped,
         }
     
-    def query(self, query_text: str, show_steps: bool = True) -> QueryResult:
+    def query(
+        self,
+        query_text: str,
+        show_steps: bool = True,
+        attachment_context: AttachmentContext | None = None,
+    ) -> QueryResult:
         """
         Query the system for relevant news.
         
@@ -234,6 +240,7 @@ class IntelligenceSystem:
         initial_state: PipelineState = {
             "query": query_text,
             "vector_store": self.vector_store,
+            "attachment_context": attachment_context,
             "errors": [],
         }
         
@@ -256,6 +263,7 @@ class IntelligenceSystem:
         self,
         query_text: str,
         history: list[dict | ConversationTurn] | None = None,
+        attachment_context: AttachmentContext | None = None,
         show_steps: bool = True,
     ) -> QueryResult:
         """Classify intent and dispatch to the appropriate handling path."""
@@ -279,12 +287,26 @@ class IntelligenceSystem:
             if decision.reason:
                 print(f"   Reason: {decision.reason}")
 
-        if decision.intent == QueryIntent.NEWS_UPDATE:
+        if attachment_context is not None and decision.intent != QueryIntent.NEWS_UPDATE:
+            result = self.query(
+                resolved_query,
+                show_steps=show_steps,
+                attachment_context=attachment_context,
+            )
+            result.query = query_text
+            decision.intent = QueryIntent.FINANCIAL_QUERY
+            if decision.source == "rule":
+                decision.reason = "Attachment-aware query routed through financial search."
+        elif decision.intent == QueryIntent.NEWS_UPDATE:
             result = self._handle_news_refresh(query_text)
         elif decision.intent == QueryIntent.GENERAL_CHAT:
             result = self._handle_general_chat(query_text)
         else:
-            result = self.query(resolved_query, show_steps=show_steps)
+            result = self.query(
+                resolved_query,
+                show_steps=show_steps,
+                attachment_context=attachment_context,
+            )
             result.query = query_text
 
         if result.timing is None:

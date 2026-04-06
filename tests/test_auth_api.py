@@ -8,7 +8,18 @@ from fastapi.testclient import TestClient
 
 from api.main import create_app
 from intanalysis.embeddings import VectorStore
-from intanalysis.models import Article, Entity, EntityType, ProcessedArticle, UniqueStory
+from intanalysis.models import (
+    Article,
+    AttachmentContext,
+    AttachmentEvidence,
+    Entity,
+    EntityType,
+    ProcessedArticle,
+    QueryIntent,
+    QueryResult,
+    QueryTiming,
+    UniqueStory,
+)
 
 
 def register_user(
@@ -137,12 +148,18 @@ class TestAuthApi:
 
     def test_protected_endpoints_require_authentication(self):
         query_response = self.client.post("/query", json={"query": "HDFC Bank news"})
+        attachment_response = self.client.post(
+            "/query-with-attachments",
+            data={"query": "总结附件"},
+            files={"file": ("notice.pdf", b"%PDF-1.4", "application/pdf")},
+        )
         chats_response = self.client.get("/chats")
         recommendations_response = self.client.get("/recommendations")
         ingest_response = self.client.post("/ingest", json={"articles": []})
         stats_response = self.client.get("/stats")
 
         assert query_response.status_code == 401
+        assert attachment_response.status_code == 401
         assert chats_response.status_code == 401
         assert recommendations_response.status_code == 401
         assert ingest_response.status_code == 401
@@ -165,6 +182,67 @@ class TestAuthApi:
         assert register_response.status_code == 200
         assert me_response.status_code == 200
         assert me_response.json()["username"] == "alice"
+
+    def test_query_with_attachment_saves_attachment_metadata(self, monkeypatch):
+        register_user(self.client, "alice", "alice@example.com")
+        services = self.app.state.services
+        public_namespace = services.context_resolver.get_public_namespace()
+        public_storage = services.context_resolver.get_storage_dir(public_namespace)
+        system = services.system_resolver.get_system(
+            storage_dir=public_storage,
+            legacy_storage_dir=self.dataset_root,
+        )
+
+        monkeypatch.setattr(
+            "api.main.AttachmentParser.parse_file",
+            lambda self, path, file_name=None, content_type=None: AttachmentContext(
+                file_name=file_name or "notice.pdf",
+                file_type="pdf",
+                summary="附件摘要：公司拟回购股份。",
+                query_text="公司拟回购股份",
+                page_count=1,
+                blocks=[],
+                warnings=[],
+            ),
+        )
+
+        monkeypatch.setattr(
+            system,
+            "handle_user_query",
+            lambda query, history=None, attachment_context=None, show_steps=True: QueryResult(
+                query=query,
+                intent=QueryIntent.FINANCIAL_QUERY,
+                intent_source="pipeline",
+                intent_reason="attachment",
+                explanation="根据附件内容，公司拟实施股份回购。",
+                attachment_summary=attachment_context.summary if attachment_context else None,
+                attachment_evidence=[
+                    AttachmentEvidence(
+                        file_name=attachment_context.file_name if attachment_context else "notice.pdf",
+                        page_no=1,
+                        block_type="paragraph",
+                        snippet="公司拟回购股份。",
+                        score=0.91,
+                        confidence=1.0,
+                    )
+                ],
+                timing=QueryTiming(),
+            ),
+        )
+
+        response = self.client.post(
+            "/query-with-attachments",
+            data={"query": "这份公告讲了什么？", "history_json": "[]"},
+            files={"file": ("notice.pdf", b"%PDF-1.4 test", "application/pdf")},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["attachment_summary"].startswith("附件摘要")
+        assert data["attachment_evidence"][0]["file_name"] == "notice.pdf"
+
+        chats = self.client.get("/chats").json()["chats"]
+        assert chats[0]["attachments"][0]["file_name"] == "notice.pdf"
 
     def test_chat_history_is_isolated_per_user(self):
         user_a = register_user(self.client, "alice", "alice@example.com").json()

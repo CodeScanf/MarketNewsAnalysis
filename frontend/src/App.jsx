@@ -9,6 +9,7 @@ import {
   loginUser,
   logoutUser,
   queryNews,
+  queryWithAttachments,
   registerUser,
 } from './api';
 
@@ -26,6 +27,7 @@ const TIMING_LABELS = {
   search_ms: 'Search',
   rerank_ms: 'Rerank',
   entity_boost_ms: 'Boost',
+  attachment_rank_ms: 'Attach',
   general_llm_ms: 'LLM',
   refresh_feeds_ms: 'Refresh',
   refresh_persist_ms: 'Persist',
@@ -75,8 +77,11 @@ function App() {
   const [registerForm, setRegisterForm] = useState(emptyRegisterForm);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [fileError, setFileError] = useState('');
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -225,6 +230,8 @@ function App() {
       setMessages([]);
       setChatHistory([]);
       setRecommendations({ mode: 'latest', feed_summary: '', cards: [] });
+      setSelectedFile(null);
+      setFileError('');
       setAuthError('');
       setLoginForm(emptyLoginForm);
       setRegisterForm(emptyRegisterForm);
@@ -236,13 +243,24 @@ function App() {
     if (!currentUser || !input.trim() || loading) return;
 
     const userMessage = input.trim();
+    const pendingFile = selectedFile;
     const historyPayload = buildHistoryPayload(messages);
+    setFileError('');
     setInput('');
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: 'user',
+        content: userMessage,
+        attachmentName: pendingFile?.name || null,
+      },
+    ]);
     setLoading(true);
 
     try {
-      const result = await queryNews(userMessage, historyPayload);
+      const result = pendingFile
+        ? await queryWithAttachments(userMessage, historyPayload, pendingFile)
+        : await queryNews(userMessage, historyPayload);
       setMessages((prev) => [
         ...prev,
         {
@@ -254,8 +272,14 @@ function App() {
           intentSource: result.intent_source,
           matchedEntities: result.matched_entities || [],
           stories: result.stories || [],
+          attachmentSummary: result.attachment_summary || '',
+          attachmentEvidence: result.attachment_evidence || [],
         },
       ]);
+      setSelectedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       await Promise.all([loadChatHistory(), loadRecommendations()]);
     } catch (err) {
       if (err.response?.status === 401) {
@@ -264,6 +288,9 @@ function App() {
         setMessages([]);
         setAuthError('Session expired. Please log in again.');
       } else {
+        if (pendingFile) {
+          setFileError(err.response?.data?.detail || 'Attachment upload failed');
+        }
         setMessages((prev) => [
           ...prev,
           {
@@ -285,13 +312,54 @@ function App() {
     }
   };
 
+  const handleAttachmentPick = () => {
+    if (!loading) {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handleAttachmentChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const lowerName = file.name.toLowerCase();
+    const allowed = ['.pdf', '.png', '.jpg', '.jpeg'];
+    const isAllowed = allowed.some((suffix) => lowerName.endsWith(suffix));
+    if (!isAllowed) {
+      setFileError('仅支持 PDF、PNG、JPG、JPEG');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setFileError('附件大小不能超过 10 MB');
+      e.target.value = '';
+      return;
+    }
+    setFileError('');
+    setSelectedFile(file);
+  };
+
+  const clearAttachment = () => {
+    setSelectedFile(null);
+    setFileError('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleNewChat = () => {
     setMessages([]);
+    clearAttachment();
     inputRef.current?.focus();
   };
 
   const handleSelectChat = (chat) => {
-    const reconstructed = [{ role: 'user', content: chat.query }];
+    const reconstructed = [
+      {
+        role: 'user',
+        content: chat.query,
+        attachmentName: chat.attachments?.[0]?.file_name || null,
+      },
+    ];
 
     let markdown = chat.markdown_response;
     if (!markdown) {
@@ -685,7 +753,10 @@ function App() {
                       </div>
                     )}
                     {msg.role === 'user' ? (
-                      <p>{msg.content}</p>
+                      <div>
+                        <p>{msg.content}</p>
+                        {msg.attachmentName && <p>[附件] {msg.attachmentName}</p>}
+                      </div>
                     ) : (
                       <ReactMarkdown>{msg.content}</ReactMarkdown>
                     )}
@@ -713,6 +784,22 @@ function App() {
           <form onSubmit={handleSubmit} className="chat-form">
             <div className="input-wrapper">
               <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg"
+                onChange={handleAttachmentChange}
+                style={{ display: 'none' }}
+              />
+              <button
+                type="button"
+                onClick={handleAttachmentPick}
+                disabled={loading}
+                className="send-btn"
+                title="上传 PDF 或图片作为当前问题附件"
+              >
+                +
+              </button>
+              <input
                 ref={inputRef}
                 type="text"
                 value={input}
@@ -731,6 +818,20 @@ function App() {
                 </svg>
               </button>
             </div>
+            {(selectedFile || fileError) && (
+              <div>
+                {selectedFile && (
+                  <p>
+                    当前附件: {selectedFile.name}
+                    {' '}
+                    <button type="button" onClick={clearAttachment} disabled={loading}>
+                      移除
+                    </button>
+                  </p>
+                )}
+                {fileError && <p>{fileError}</p>}
+              </div>
+            )}
           </form>
           <p className="disclaimer">
             Public knowledge base is shared. Your private namespace metadata and chat history stay isolated to your account.

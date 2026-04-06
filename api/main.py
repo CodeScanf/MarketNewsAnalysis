@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import tempfile
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 from typing import List, Optional
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -21,11 +23,19 @@ from intanalysis.app_services import (
     RecommendationService,
     build_authenticated_user,
 )
-from intanalysis.models import AuthenticatedUser, ConversationTurn, QueryIntent, QueryTiming
+from intanalysis.attachments import AttachmentParser, build_attachment_metadata
+from intanalysis.models import (
+    AttachmentEvidence,
+    AuthenticatedUser,
+    ConversationTurn,
+    QueryIntent,
+    QueryTiming,
+)
 
 
 SESSION_COOKIE_NAME = "intanalysis_session"
 SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 
 def _configure_console_encoding() -> None:
@@ -132,6 +142,18 @@ class StoryResponse(BaseModel):
     duplicate_count: int
 
 
+class AttachmentEvidenceResponse(BaseModel):
+    """Attachment evidence snippet."""
+
+    file_name: str
+    page_no: int
+    block_type: str
+    snippet: str
+    score: float
+    bbox: Optional[List[float]] = None
+    confidence: float
+
+
 class QueryResponse(BaseModel):
     """Response model for queries."""
 
@@ -142,6 +164,8 @@ class QueryResponse(BaseModel):
     stories: List[StoryResponse]
     matched_entities: List[EntityResponse]
     explanation: Optional[str]
+    attachment_summary: Optional[str] = None
+    attachment_evidence: List[AttachmentEvidenceResponse] = Field(default_factory=list)
     markdown_response: str
     timing: QueryTiming
 
@@ -323,11 +347,52 @@ def story_to_response(story) -> StoryResponse:
     )
 
 
-def format_query_as_markdown(query: str, stories: list, explanation: Optional[str]) -> str:
+def attachment_evidence_to_response(evidence: AttachmentEvidence) -> AttachmentEvidenceResponse:
+    """Convert attachment evidence to an API response."""
+    return AttachmentEvidenceResponse(**evidence.model_dump())
+
+
+def build_conversation_history(turns: list[ConversationTurnInput]) -> list[ConversationTurn]:
+    """Convert request history payload into internal conversation turns."""
+    return [
+        ConversationTurn(
+            role=turn.role,
+            content=turn.content,
+            intent=turn.intent,
+            matched_entities=turn.matched_entities,
+            story_titles=turn.story_titles,
+        )
+        for turn in turns
+    ]
+
+
+def parse_history_json(history_json: str | None) -> list[ConversationTurn]:
+    """Parse multipart history payload into validated conversation turns."""
+    if not history_json:
+        return []
+    try:
+        raw = json.loads(history_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError("history_json must be valid JSON") from exc
+    if not isinstance(raw, list):
+        raise ValueError("history_json must be a JSON array")
+    turns = [ConversationTurnInput.model_validate(item) for item in raw]
+    return build_conversation_history(turns)
+
+
+def format_query_as_markdown(
+    query: str,
+    stories: list,
+    explanation: Optional[str],
+    attachment_summary: Optional[str] = None,
+    attachment_evidence: Optional[list[AttachmentEvidenceResponse]] = None,
+) -> str:
     """Format query results as markdown."""
     md = f"# Query Results: \"{query}\"\n\n"
     if explanation:
         md += f"## Summary\n{explanation}\n\n"
+    if attachment_summary:
+        md += f"## Attachment Summary\n{attachment_summary}\n\n"
     md += f"## {len(stories)} source{'s' if len(stories) != 1 else ''} found.\n\n"
 
     for i, story in enumerate(stories, 1):
@@ -356,6 +421,11 @@ def format_query_as_markdown(query: str, stories: list, explanation: Optional[st
             md += f"*This story has {story.duplicate_count} duplicate article(s)*\n\n"
 
         md += "---\n\n"
+
+    if attachment_evidence:
+        md += "## Attachment Evidence\n\n"
+        for item in attachment_evidence:
+            md += f"- **{item.file_name}** page {item.page_no}: {item.snippet}\n"
 
     return md
 
@@ -410,6 +480,34 @@ def format_ingest_as_markdown(result: dict) -> str:
     return md
 
 
+def build_query_payload(query_text: str, result) -> tuple[list[StoryResponse], list[EntityResponse], list[AttachmentEvidenceResponse], str]:
+    """Convert a QueryResult into API response primitives."""
+    stories = [story_to_response(story) for story in result.stories]
+    entities = [
+        EntityResponse(name=e.name, type=e.type.value, confidence=e.confidence)
+        for e in result.matched_entities
+    ]
+    attachment_evidence = [
+        attachment_evidence_to_response(item)
+        for item in result.attachment_evidence
+    ]
+
+    if result.intent == QueryIntent.GENERAL_CHAT:
+        markdown = format_general_as_markdown(query_text, result.explanation)
+    elif result.intent == QueryIntent.NEWS_UPDATE:
+        markdown = format_update_as_markdown(query_text, stories, result.explanation)
+    else:
+        markdown = format_query_as_markdown(
+            query_text,
+            stories,
+            result.explanation,
+            attachment_summary=result.attachment_summary,
+            attachment_evidence=attachment_evidence,
+        )
+
+    return stories, entities, attachment_evidence, markdown
+
+
 def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
     """Create the FastAPI app with runtime services."""
     dataset_path = Path(dataset_root)
@@ -459,6 +557,7 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
                 "POST /auth/logout": "Logout the current user",
                 "GET /auth/me": "Get current session user",
                 "POST /query": "Route and answer a user query",
+                "POST /query-with-attachments": "Route a user query with one temporary PDF/image attachment",
                 "GET /recommendations": "Get recommendation cards from recent chats or latest news",
                 "POST /ingest": "Ingest articles into the public knowledge base",
                 "GET /stats": "Get public knowledge base statistics",
@@ -589,30 +688,9 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
 
         try:
             request_started = perf_counter()
-            history = [
-                ConversationTurn(
-                    role=turn.role,
-                    content=turn.content,
-                    intent=turn.intent,
-                    matched_entities=turn.matched_entities,
-                    story_titles=turn.story_titles,
-                )
-                for turn in request.history
-            ]
+            history = build_conversation_history(request.history)
             result = system.handle_user_query(request.query, history=history)
-
-            stories = [story_to_response(story) for story in result.stories]
-            entities = [
-                EntityResponse(name=e.name, type=e.type.value, confidence=e.confidence)
-                for e in result.matched_entities
-            ]
-
-            if result.intent == QueryIntent.GENERAL_CHAT:
-                markdown = format_general_as_markdown(request.query, result.explanation)
-            elif result.intent == QueryIntent.NEWS_UPDATE:
-                markdown = format_update_as_markdown(request.query, stories, result.explanation)
-            else:
-                markdown = format_query_as_markdown(request.query, stories, result.explanation)
+            stories, entities, attachment_evidence, markdown = build_query_payload(request.query, result)
 
             result.timing.api_ms = round((perf_counter() - request_started) * 1000, 1)
 
@@ -636,11 +714,102 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
                 stories=stories,
                 matched_entities=entities,
                 explanation=result.explanation,
+                attachment_summary=result.attachment_summary,
+                attachment_evidence=attachment_evidence,
                 markdown_response=markdown,
                 timing=result.timing,
             )
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.post("/query-with-attachments", response_model=QueryResponse)
+    async def query_system_with_attachments(
+        query: str = Form(...),
+        history_json: Optional[str] = Form(default=None),
+        file: UploadFile = File(...),
+        current_user: AuthenticatedUser = Depends(get_current_user),
+    ):
+        """Route a query with a temporary attachment context."""
+        public_namespace = services.context_resolver.get_public_namespace()
+        public_storage = services.context_resolver.get_storage_dir(public_namespace)
+        system = services.system_resolver.get_system(
+            storage_dir=public_storage,
+            legacy_storage_dir=services.dataset_root,
+        )
+
+        file_name = file.filename or "attachment"
+        suffix = Path(file_name).suffix.lower()
+        if suffix not in {".pdf", ".png", ".jpg", ".jpeg"}:
+            raise HTTPException(status_code=400, detail="Unsupported attachment type")
+
+        temp_path: Path | None = None
+        try:
+            request_started = perf_counter()
+            raw_bytes = await file.read()
+            if not raw_bytes:
+                raise HTTPException(status_code=400, detail="Attachment is empty")
+            if len(raw_bytes) > MAX_ATTACHMENT_BYTES:
+                raise HTTPException(status_code=400, detail="Attachment exceeds 10 MB limit")
+
+            history = parse_history_json(history_json)
+
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix,
+                delete=False,
+                dir=str(services.dataset_root),
+            ) as tmp:
+                tmp.write(raw_bytes)
+                temp_path = Path(tmp.name)
+
+            attachment_context = AttachmentParser().parse_file(
+                temp_path,
+                file_name=file_name,
+                content_type=file.content_type,
+            )
+            result = system.handle_user_query(
+                query,
+                history=history,
+                attachment_context=attachment_context,
+            )
+            stories, entities, attachment_evidence, markdown = build_query_payload(query, result)
+            result.timing.api_ms = round((perf_counter() - request_started) * 1000, 1)
+
+            services.chat_history.save_chat(
+                user_id=current_user.id,
+                query=query,
+                intent=result.intent.value,
+                intent_source=result.intent_source,
+                explanation=result.explanation,
+                stories=stories,
+                matched_entities=entities,
+                attachments=[build_attachment_metadata(attachment_context)],
+                markdown_response=markdown,
+                timing=result.timing.model_dump(),
+            )
+
+            return QueryResponse(
+                query=result.query,
+                intent=result.intent,
+                intent_source=result.intent_source,
+                intent_reason=result.intent_reason,
+                stories=stories,
+                matched_entities=entities,
+                explanation=result.explanation,
+                attachment_summary=result.attachment_summary,
+                attachment_evidence=attachment_evidence,
+                markdown_response=markdown,
+                timing=result.timing,
+            )
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        finally:
+            await file.close()
+            if temp_path and temp_path.exists():
+                temp_path.unlink(missing_ok=True)
 
     @app.get("/recommendations", response_model=RecommendationsResponse)
     async def get_recommendations(current_user: AuthenticatedUser = Depends(get_current_user)):

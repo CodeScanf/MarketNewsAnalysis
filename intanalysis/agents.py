@@ -18,9 +18,10 @@ import numpy as np
 import spacy
 
 from intanalysis.models import (
-    Article, Entity, EntityType, StockImpact, ImpactType,
+    Article, AttachmentContext, Entity, EntityType, StockImpact, ImpactType,
     ProcessedArticle, QueryTiming, UniqueStory, QueryResult
 )
+from intanalysis.attachments import AttachmentRetriever, build_attachment_evidence
 from intanalysis.mappings import (
     COMPANY_TO_STOCK, SECTOR_TO_COMPANIES, REGULATORS,
     find_stock_symbols, get_stock_symbol, get_companies_in_sector, get_sectors_for_company
@@ -523,14 +524,46 @@ class QueryAgent(BaseAgent):
         step_timings: dict[str, float] = {}
 
         query = state.get("query", "")
+        attachment_context: AttachmentContext | None = state.get("attachment_context")
         if not query:
             return state
         
         vector_store: VectorStore = state.get("vector_store")
-        if not vector_store:
+        if not vector_store and not attachment_context:
             state["query_result"] = QueryResult(
                 query=query,
                 explanation="No articles indexed yet",
+                timing=QueryTiming(
+                    pipeline_ms=round((perf_counter() - process_started) * 1000, 1),
+                    stages=step_timings,
+                ),
+            )
+            return state
+
+        if not vector_store and attachment_context:
+            step_started = perf_counter()
+            attachment_ranked: list[tuple] = []
+            if attachment_context.blocks:
+                try:
+                    attachment_ranked = AttachmentRetriever(self.embedder).rank_blocks(
+                        query,
+                        attachment_context,
+                        limit=4,
+                    )
+                except Exception as exc:
+                    self.log(f"   Warning: Could not rank attachment evidence: {exc}")
+            step_timings["attachment_rank_ms"] = round((perf_counter() - step_started) * 1000, 1)
+            attachment_evidence = build_attachment_evidence(attachment_context, attachment_ranked)
+            if not attachment_evidence and attachment_context.blocks:
+                attachment_evidence = build_attachment_evidence(
+                    attachment_context,
+                    [(block, 0.0) for block in attachment_context.blocks[:2]],
+                )
+            state["query_result"] = QueryResult(
+                query=query,
+                explanation=attachment_context.summary or "Attachment parsed successfully.",
+                attachment_summary=attachment_context.summary or None,
+                attachment_evidence=attachment_evidence,
                 timing=QueryTiming(
                     pipeline_ms=round((perf_counter() - process_started) * 1000, 1),
                     stages=step_timings,
@@ -552,6 +585,8 @@ class QueryAgent(BaseAgent):
         self.log("Step 2: Expanding query with related terms...")
         step_started = perf_counter()
         expanded_query = self._expand_query(query, query_entities)
+        if attachment_context and attachment_context.query_text:
+            expanded_query = f"{expanded_query}\n\nAttachment context:\n{attachment_context.query_text[:1500]}".strip()
         step_timings["expand_query_ms"] = round((perf_counter() - step_started) * 1000, 1)
         self.log(f"   Expanded: \"{expanded_query[:80]}...\"" if len(expanded_query) > 80 else f"   Expanded: \"{expanded_query}\"")
         
@@ -587,13 +622,28 @@ class QueryAgent(BaseAgent):
         
         # Limit to top 10 results for LLM evaluation
         top_results = filtered_results[:10]
+
+        # Step 5.5: Rank attachment evidence for the current query
+        attachment_ranked: list[tuple] = []
+        attachment_evidence = []
+        if attachment_context and attachment_context.blocks:
+            self.log("Step 5.5: Ranking attachment evidence...")
+            step_started = perf_counter()
+            try:
+                attachment_ranked = AttachmentRetriever(self.embedder).rank_blocks(query, attachment_context, limit=4)
+                attachment_evidence = build_attachment_evidence(attachment_context, attachment_ranked)
+            except Exception as exc:
+                self.log(f"   Warning: Could not rank attachment evidence: {exc}")
+            step_timings["attachment_rank_ms"] = round((perf_counter() - step_started) * 1000, 1)
+        else:
+            step_timings["attachment_rank_ms"] = 0.0
         
         # Step 6: Generate intelligent answer and filter relevant results
         self.log("Step 6: Generating AI answer and filtering relevant sources...")
         step_started = perf_counter()
         explanation = None
         final_results = []
-        if self.llm and top_results:
+        if self.llm and (top_results or attachment_ranked):
             try:
                 # Include full content for better answers
                 result_summaries = [
@@ -605,15 +655,38 @@ class QueryAgent(BaseAgent):
                     }
                     for s, _ in top_results
                 ]
-                llm_response = self.llm.explain_query_results(query, result_summaries)
+                if attachment_ranked:
+                    attachment_summaries = [
+                        {
+                            "file_name": attachment_context.file_name if attachment_context else "",
+                            "page_no": block.page_no,
+                            "block_type": block.block_type,
+                            "content": block.text,
+                        }
+                        for block, _ in attachment_ranked
+                    ]
+                    llm_response = self.llm.explain_query_results_with_attachments(
+                        query,
+                        result_summaries,
+                        attachment_summaries,
+                    )
+                else:
+                    llm_response = self.llm.explain_query_results(query, result_summaries)
                 
                 # Handle structured response
                 if isinstance(llm_response, dict):
                     explanation = llm_response.get("explanation", "")
                     relevant_indices = llm_response.get("relevant_indices", [])
+                    relevant_attachment_indices = llm_response.get("relevant_attachment_indices", [])
                     
                     # Filter to only relevant results
                     final_results = [top_results[i] for i in relevant_indices if i < len(top_results)]
+                    if attachment_evidence:
+                        attachment_evidence = [
+                            attachment_evidence[i]
+                            for i in relevant_attachment_indices
+                            if i < len(attachment_evidence)
+                        ] or attachment_evidence[:2]
                     self.log(f"   LLM identified {len(final_results)} relevant sources out of {len(top_results)}")
                 else:
                     # Fallback for string response
@@ -624,7 +697,14 @@ class QueryAgent(BaseAgent):
                 final_results = top_results[:5]
         else:
             final_results = top_results[:5]
+            if attachment_evidence and not explanation:
+                explanation = attachment_context.summary if attachment_context else None
         step_timings["answer_ms"] = round((perf_counter() - step_started) * 1000, 1)
+
+        if not explanation and attachment_context and attachment_context.summary:
+            explanation = attachment_context.summary
+        if not attachment_evidence and attachment_ranked:
+            attachment_evidence = build_attachment_evidence(attachment_context, attachment_ranked) if attachment_context else []
 
         # Determine final entities based on whether we have relevant results
         final_entities = query_entities if final_results else []
@@ -635,6 +715,8 @@ class QueryAgent(BaseAgent):
             stories=[s for s, _ in final_results],
             matched_entities=[Entity(name=e["name"], type=e["type"]) for e in final_entities],
             explanation=explanation,
+            attachment_summary=attachment_context.summary if attachment_context and attachment_context.summary else None,
+            attachment_evidence=attachment_evidence,
             timing=QueryTiming(
                 pipeline_ms=pipeline_ms,
                 stages=step_timings,

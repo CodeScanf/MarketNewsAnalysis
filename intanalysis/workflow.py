@@ -3,7 +3,7 @@
 from typing import Callable, Literal, Optional, TypedDict
 from langgraph.graph import StateGraph, END
 
-from intanalysis.models import Article, UniqueStory, QueryResult
+from intanalysis.models import Article, AttachmentContext, QueryResult, UniqueStory
 from intanalysis.embeddings import VectorStore
 from intanalysis.agents import (
     IngestionAgent,
@@ -27,6 +27,7 @@ class PipelineState(TypedDict, total=False):
     # Inputs
     raw_articles: list[dict | Article]
     query: Optional[str]
+    attachment_context: Optional[AttachmentContext]
     
     # Processing
     articles: list[Article]
