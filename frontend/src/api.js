@@ -61,6 +61,46 @@ export const queryWithAttachments = async (query, history = [], file) => {
   };
 };
 
+export const queryKnowledgeBase = async (payload) => {
+  const started = performance.now();
+  const response = await api.post('/kb/query', payload);
+  return {
+    ...response.data,
+    client_ms: Number((performance.now() - started).toFixed(1)),
+  };
+};
+
+export const listKnowledgeDocuments = async (params = {}) => {
+  const response = await api.get('/kb/documents', { params });
+  return response.data;
+};
+
+export const getKnowledgeDocument = async (documentId) => {
+  const response = await api.get(`/kb/documents/${documentId}`);
+  return response.data;
+};
+
+export const getKnowledgeStats = async () => {
+  const response = await api.get('/kb/stats');
+  return response.data;
+};
+
+export const uploadKnowledgeDocument = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await api.post('/kb/documents/upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+};
+
+export const rebuildKnowledgeBase = async () => {
+  const response = await api.post('/kb/rebuild-from-public-news');
+  return response.data;
+};
+
 export const getChatHistory = async (limit = 50) => {
   const response = await api.get('/chats', { params: { limit } });
   return response.data;

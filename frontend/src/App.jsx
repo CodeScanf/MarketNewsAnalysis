@@ -3,14 +3,20 @@ import ReactMarkdown from 'react-markdown';
 import {
   clearChatHistory,
   deleteChat,
+  getKnowledgeDocument,
+  getKnowledgeStats,
   getChatHistory,
   getCurrentUser,
   getRecommendations,
+  listKnowledgeDocuments,
   loginUser,
   logoutUser,
   queryNews,
+  queryKnowledgeBase,
   queryWithAttachments,
+  rebuildKnowledgeBase,
   registerUser,
+  uploadKnowledgeDocument,
 } from './api';
 
 const formatDuration = (value) => {
@@ -71,6 +77,16 @@ function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [recommendationLoading, setRecommendationLoading] = useState(false);
   const [recommendations, setRecommendations] = useState({ mode: 'latest', feed_summary: '', cards: [] });
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [knowledgeQuery, setKnowledgeQuery] = useState('');
+  const [knowledgeTypeFilter, setKnowledgeTypeFilter] = useState('');
+  const [knowledgeResult, setKnowledgeResult] = useState(null);
+  const [knowledgeDocuments, setKnowledgeDocuments] = useState([]);
+  const [knowledgeStats, setKnowledgeStats] = useState(null);
+  const [knowledgeDetail, setKnowledgeDetail] = useState(null);
+  const [knowledgeError, setKnowledgeError] = useState('');
+  const [knowledgeUploadFile, setKnowledgeUploadFile] = useState(null);
+  const [knowledgeUploadStatus, setKnowledgeUploadStatus] = useState('');
   const [sessionLoading, setSessionLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [authMode, setAuthMode] = useState('login');
@@ -83,6 +99,7 @@ function App() {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const knowledgeUploadInputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -101,6 +118,12 @@ function App() {
       inputRef.current?.focus();
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser && activeView === 'knowledge') {
+      void loadKnowledgeOverview();
+    }
+  }, [activeView, currentUser, knowledgeTypeFilter]);
 
   const bootstrapSession = async () => {
     setSessionLoading(true);
@@ -155,6 +178,41 @@ function App() {
       }
     } finally {
       setRecommendationLoading(false);
+    }
+  };
+
+  const loadKnowledgeOverview = async () => {
+    setKnowledgeLoading(true);
+    setKnowledgeError('');
+    try {
+      const [docs, stats] = await Promise.all([
+        listKnowledgeDocuments({ limit: 20, ...(knowledgeTypeFilter ? { doc_type: knowledgeTypeFilter } : {}) }),
+        getKnowledgeStats(),
+      ]);
+      const documents = docs.documents || [];
+      setKnowledgeDocuments(documents);
+      setKnowledgeStats(stats || null);
+
+      if (!documents.length) {
+        setKnowledgeDetail(null);
+        return;
+      }
+
+      const preferredDocumentId = documents.some((document) => document.id === knowledgeDetail?.document?.id)
+        ? knowledgeDetail.document.id
+        : documents[0].id;
+      const detail = await getKnowledgeDocument(preferredDocumentId);
+      setKnowledgeDetail(detail);
+    } catch (err) {
+      if (err.response?.status === 401) {
+        setCurrentUser(null);
+        setChatHistory([]);
+        setMessages([]);
+      } else {
+        setKnowledgeError(err.response?.data?.detail || 'Failed to load knowledge base');
+      }
+    } finally {
+      setKnowledgeLoading(false);
     }
   };
 
@@ -227,10 +285,19 @@ function App() {
     } catch (err) {
       console.error('Failed to logout:', err);
     } finally {
+      setActiveView('chat');
       setCurrentUser(null);
       setMessages([]);
       setChatHistory([]);
       setRecommendations({ mode: 'latest', feed_summary: '', cards: [] });
+      setKnowledgeQuery('');
+      setKnowledgeResult(null);
+      setKnowledgeDocuments([]);
+      setKnowledgeStats(null);
+      setKnowledgeDetail(null);
+      setKnowledgeError('');
+      setKnowledgeUploadFile(null);
+      setKnowledgeUploadStatus('');
       setSelectedFile(null);
       setFileError('');
       setAuthError('');
@@ -310,6 +377,95 @@ function App() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
+    }
+  };
+
+  const handleKnowledgeSearch = async (e) => {
+    e.preventDefault();
+    if (!knowledgeQuery.trim() || knowledgeLoading) return;
+    setKnowledgeLoading(true);
+    setKnowledgeError('');
+    try {
+      const data = await queryKnowledgeBase({
+        query: knowledgeQuery.trim(),
+        doc_types: knowledgeTypeFilter ? [knowledgeTypeFilter] : [],
+      });
+      setKnowledgeResult(data);
+    } catch (err) {
+      if (err.response?.status === 401) {
+        setCurrentUser(null);
+        setChatHistory([]);
+        setMessages([]);
+      } else {
+        setKnowledgeError(err.response?.data?.detail || 'Knowledge query failed');
+      }
+    } finally {
+      setKnowledgeLoading(false);
+    }
+  };
+
+  const handleOpenKnowledgeDocument = async (documentId) => {
+    setKnowledgeLoading(true);
+    setKnowledgeError('');
+    try {
+      const detail = await getKnowledgeDocument(documentId);
+      setKnowledgeDetail(detail);
+    } catch (err) {
+      setKnowledgeError(err.response?.data?.detail || 'Failed to load document detail');
+    } finally {
+      setKnowledgeLoading(false);
+    }
+  };
+
+  const handleKnowledgeUploadPick = () => {
+    if (!knowledgeLoading) {
+      knowledgeUploadInputRef.current?.click();
+    }
+  };
+
+  const handleKnowledgeUploadChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const lowerName = file.name.toLowerCase();
+    const allowed = ['.pdf', '.png', '.jpg', '.jpeg'];
+    const isAllowed = allowed.some((suffix) => lowerName.endsWith(suffix));
+    if (!isAllowed) {
+      setKnowledgeUploadStatus('仅支持 PDF、PNG、JPG、JPEG');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setKnowledgeUploadStatus('文件大小不能超过 10 MB');
+      e.target.value = '';
+      return;
+    }
+    setKnowledgeLoading(true);
+    setKnowledgeUploadStatus(`正在上传 ${file.name}...`);
+    setKnowledgeUploadFile(file);
+    try {
+      await uploadKnowledgeDocument(file);
+      setKnowledgeUploadStatus(`已上传 ${file.name}`);
+      await loadKnowledgeOverview();
+    } catch (err) {
+      setKnowledgeUploadStatus(err.response?.data?.detail || '上传失败');
+    } finally {
+      setKnowledgeLoading(false);
+      setKnowledgeUploadFile(null);
+      e.target.value = '';
+    }
+  };
+
+  const handleKnowledgeRebuild = async () => {
+    setKnowledgeLoading(true);
+    setKnowledgeUploadStatus('正在从公共新闻重建知识库...');
+    try {
+      const data = await rebuildKnowledgeBase();
+      setKnowledgeUploadStatus(`已重建：新增 ${data.documents_added || 0} 篇文档`);
+      await loadKnowledgeOverview();
+    } catch (err) {
+      setKnowledgeUploadStatus(err.response?.data?.detail || '重建失败');
+    } finally {
+      setKnowledgeLoading(false);
     }
   };
 
@@ -510,6 +666,148 @@ function App() {
     </div>
   );
 
+  const renderKnowledgeBase = () => (
+    <section className="knowledge-shell">
+      <div className="knowledge-toolbar">
+        <div>
+          <p className="recommendation-kicker">Knowledge Base</p>
+          <h3>金融知识数据库</h3>
+          <p className="knowledge-copy">面向公共金融知识的引用式问答与文档检索。</p>
+        </div>
+        {knowledgeStats ? (
+          <div className="knowledge-stats">
+            <span>{knowledgeStats.document_count} docs</span>
+            <span>{knowledgeStats.chunk_count} chunks</span>
+          </div>
+        ) : null}
+      </div>
+
+      <form className="knowledge-query-form" onSubmit={handleKnowledgeSearch}>
+        <input
+          type="text"
+          value={knowledgeQuery}
+          onChange={(e) => setKnowledgeQuery(e.target.value)}
+          placeholder="输入公司、行业、监管、公告或知识问题..."
+          disabled={knowledgeLoading}
+        />
+        <select
+          value={knowledgeTypeFilter}
+          onChange={(e) => setKnowledgeTypeFilter(e.target.value)}
+          disabled={knowledgeLoading}
+        >
+          <option value="">全部类型</option>
+          <option value="news_story">新闻</option>
+          <option value="attachment_pdf">PDF</option>
+          <option value="attachment_image">图片</option>
+        </select>
+        <button type="submit" disabled={knowledgeLoading || !knowledgeQuery.trim()}>
+          检索
+        </button>
+      </form>
+
+      {currentUser?.is_admin ? (
+        <div className="knowledge-admin">
+          <input
+            ref={knowledgeUploadInputRef}
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg"
+            onChange={handleKnowledgeUploadChange}
+            style={{ display: 'none' }}
+          />
+          <button type="button" onClick={handleKnowledgeUploadPick} disabled={knowledgeLoading}>
+            上传 PDF/图片
+          </button>
+          <button type="button" onClick={handleKnowledgeRebuild} disabled={knowledgeLoading}>
+            从公共新闻重建
+          </button>
+          {knowledgeUploadStatus ? <span>{knowledgeUploadStatus}</span> : null}
+          {knowledgeUploadFile ? <span>当前上传: {knowledgeUploadFile.name}</span> : null}
+        </div>
+      ) : null}
+
+      {knowledgeError ? <div className="knowledge-error">{knowledgeError}</div> : null}
+
+      {knowledgeResult ? (
+        <div className="knowledge-answer-card">
+          <h4>Answer</h4>
+          <p>{knowledgeResult.answer}</p>
+          {knowledgeResult.citations?.length ? (
+            <div className="knowledge-citation-list">
+              {knowledgeResult.citations.map((citation) => (
+                <article key={citation.chunk_id} className="knowledge-citation">
+                  <strong>{citation.title}</strong>
+                  <span>
+                    {citation.source || 'Unknown source'}
+                    {citation.published_at ? ` · ${formatDate(citation.published_at)}` : ''}
+                    {citation.anchor_label ? ` · ${citation.anchor_label}` : ''}
+                  </span>
+                  <p>{citation.snippet}</p>
+                  {citation.storage_path ? (
+                    <a href={`/api/kb/documents/${citation.document_id}/file`} target="_blank" rel="noreferrer">
+                      打开原件
+                    </a>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="knowledge-grid">
+        <section className="knowledge-list">
+          <div className="knowledge-section-title">Documents</div>
+          {knowledgeDocuments.length ? (
+            knowledgeDocuments.map((document) => (
+              <button
+                key={document.id}
+                type="button"
+                className={`knowledge-doc-item ${knowledgeDetail?.document?.id === document.id ? 'active' : ''}`}
+                onClick={() => handleOpenKnowledgeDocument(document.id)}
+              >
+                <strong>{document.title}</strong>
+                <span>{document.doc_type}</span>
+                <small>{document.source || 'uploaded_attachment'}</small>
+              </button>
+            ))
+          ) : (
+            <div className="knowledge-empty">知识库中还没有可展示的文档。</div>
+          )}
+        </section>
+
+        <section className="knowledge-detail">
+          <div className="knowledge-section-title">Detail</div>
+          {knowledgeDetail?.document ? (
+            <div className="knowledge-detail-card">
+              <h4>{knowledgeDetail.document.title}</h4>
+              <p>{knowledgeDetail.document.summary || 'No summary available.'}</p>
+              <div className="knowledge-meta-row">
+                <span>{knowledgeDetail.document.doc_type}</span>
+                <span>{knowledgeDetail.document.source || 'uploaded_attachment'}</span>
+                {knowledgeDetail.document.published_at ? <span>{formatDate(knowledgeDetail.document.published_at)}</span> : null}
+              </div>
+              {knowledgeDetail.document.storage_path ? (
+                <a href={`/api/kb/documents/${knowledgeDetail.document.id}/file`} target="_blank" rel="noreferrer">
+                  打开原件
+                </a>
+              ) : null}
+              <div className="knowledge-chunks">
+                {knowledgeDetail.chunks?.slice(0, 12).map((chunk) => (
+                  <article key={chunk.id} className="knowledge-chunk">
+                    <strong>{chunk.anchor_label || `Chunk ${chunk.chunk_no}`}</strong>
+                    <p>{chunk.text}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="knowledge-empty">选择一篇文档查看摘要和分块内容。</div>
+          )}
+        </section>
+      </div>
+    </section>
+  );
+
   if (sessionLoading) {
     return (
       <div className="auth-shell">
@@ -676,6 +974,13 @@ function App() {
             Chat
           </button>
           <button
+            className={`sidebar-nav-item ${activeView === 'knowledge' ? 'active' : ''}`}
+            onClick={() => setActiveView('knowledge')}
+            type="button"
+          >
+            Knowledge Base
+          </button>
+          <button
             className={`sidebar-nav-item ${activeView === 'recommendations' ? 'active' : ''}`}
             onClick={() => setActiveView('recommendations')}
             type="button"
@@ -742,7 +1047,11 @@ function App() {
         </header>
 
         <main className="chat-messages">
-          {activeView === 'recommendations' ? (
+          {activeView === 'knowledge' ? (
+            <div className="dashboard dashboard-recommendations">
+              {renderKnowledgeBase()}
+            </div>
+          ) : activeView === 'recommendations' ? (
             <div className="dashboard dashboard-recommendations">
               {renderRecommendations()}
             </div>

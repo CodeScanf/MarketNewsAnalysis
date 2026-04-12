@@ -31,6 +31,13 @@ class QueryIntent(str, Enum):
     FINANCIAL_QUERY = "financial_query"
 
 
+class KnowledgeDocType(str, Enum):
+    """Supported knowledge base document types."""
+    NEWS_STORY = "news_story"
+    ATTACHMENT_PDF = "attachment_pdf"
+    ATTACHMENT_IMAGE = "attachment_image"
+
+
 class Article(BaseModel):
     """Raw news article."""
     id: str = Field(default_factory=lambda: "")
@@ -174,6 +181,59 @@ class QueryResult(BaseModel):
     explanation: Optional[str] = None
     attachment_summary: Optional[str] = None
     attachment_evidence: List[AttachmentEvidence] = Field(default_factory=list)
+    timing: QueryTiming = Field(default_factory=QueryTiming)
+
+
+class KnowledgeDocument(BaseModel):
+    """Public knowledge base document metadata."""
+    id: str
+    doc_type: KnowledgeDocType
+    title: str
+    source: Optional[str] = None
+    published_at: Optional[str] = None
+    language: str = "zh"
+    summary: str = ""
+    url: Optional[str] = None
+    storage_path: Optional[str] = None
+    mime_type: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    entities: List[Entity] = Field(default_factory=list)
+    created_at: str
+
+
+class KnowledgeChunk(BaseModel):
+    """Chunk-level representation stored in the knowledge index."""
+    id: str
+    document_id: str
+    chunk_no: int
+    text: str
+    page_no: Optional[int] = None
+    section_title: Optional[str] = None
+    anchor_label: Optional[str] = None
+    block_type: str = "paragraph"
+    embedding: Optional[List[float]] = None
+
+
+class KnowledgeCitation(BaseModel):
+    """Citation returned from a knowledge-base answer."""
+    document_id: str
+    chunk_id: str
+    title: str
+    doc_type: KnowledgeDocType
+    source: Optional[str] = None
+    published_at: Optional[str] = None
+    snippet: str
+    anchor_label: Optional[str] = None
+    page_no: Optional[int] = None
+    storage_path: Optional[str] = None
+
+
+class KnowledgeQueryResult(BaseModel):
+    """Chunk-based knowledge-base query result."""
+    query: str
+    answer: str
+    citations: List[KnowledgeCitation] = Field(default_factory=list)
+    related_documents: List[KnowledgeDocument] = Field(default_factory=list)
     timing: QueryTiming = Field(default_factory=QueryTiming)
 
 

@@ -322,3 +322,45 @@ You MUST respond with ONLY valid JSON in this exact shape:
             "relevant_indices": list(range(len(results[:10]))),
             "relevant_attachment_indices": list(range(len(attachment_blocks[:8]))),
         }
+
+    def explain_knowledge_results(self, query: str, chunks: list[dict]) -> dict:
+        """Generate a cited answer from knowledge-base chunks."""
+        prompt = f"""You are a financial knowledge-base assistant. Answer the user's question using only the provided knowledge chunks.
+
+User Question: {query}
+
+Knowledge Chunks:
+{json.dumps(chunks[:8], indent=2, ensure_ascii=False)}
+
+Instructions:
+1. Use only the provided evidence.
+2. Prefer precise factual answers over speculation.
+3. If the evidence is insufficient, say so clearly.
+4. Select only directly relevant chunk indices.
+
+You MUST respond with ONLY valid JSON in this exact shape:
+{{"explanation": "2-4 sentence answer", "relevant_chunk_indices": [0, 1]}}"""
+
+        response = self.generate(
+            prompt,
+            "You are a JSON-only response assistant. Output valid JSON only, no markdown.",
+            max_tokens=700,
+        )
+
+        try:
+            clean_response = response.strip()
+            if clean_response.startswith("```"):
+                clean_response = re.sub(r'^```(?:json)?\s*', '', clean_response)
+                clean_response = re.sub(r'\s*```$', '', clean_response)
+
+            parsed = json.loads(clean_response)
+            if "explanation" in parsed:
+                parsed.setdefault("relevant_chunk_indices", [])
+                return parsed
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+        return {
+            "explanation": response,
+            "relevant_chunk_indices": list(range(len(chunks[:4]))),
+        }

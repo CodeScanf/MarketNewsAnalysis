@@ -269,6 +269,40 @@ class AppDatabase:
             )
             cursor.execute(
                 """
+                CREATE TABLE IF NOT EXISTS knowledge_documents (
+                    id TEXT PRIMARY KEY,
+                    doc_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    source TEXT,
+                    published_at TEXT,
+                    language TEXT NOT NULL DEFAULT 'zh',
+                    summary TEXT NOT NULL DEFAULT '',
+                    url TEXT,
+                    storage_path TEXT,
+                    mime_type TEXT,
+                    tags_json TEXT NOT NULL DEFAULT '[]',
+                    entities_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS knowledge_chunks (
+                    id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    chunk_no INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    page_no INTEGER,
+                    section_title TEXT,
+                    anchor_label TEXT,
+                    block_type TEXT NOT NULL DEFAULT 'paragraph',
+                    FOREIGN KEY(document_id) REFERENCES knowledge_documents(id) ON DELETE CASCADE
+                )
+                """
+            )
+            cursor.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_sessions_user_id
                 ON sessions(user_id)
                 """
@@ -301,6 +335,24 @@ class AppDatabase:
                 """
                 CREATE INDEX IF NOT EXISTS idx_recommendation_snapshots_user_date
                 ON recommendation_snapshots(user_id, served_date)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_knowledge_documents_type_source
+                ON knowledge_documents(doc_type, source)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_knowledge_documents_published
+                ON knowledge_documents(published_at)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_document
+                ON knowledge_chunks(document_id, chunk_no)
                 """
             )
             for statement in (

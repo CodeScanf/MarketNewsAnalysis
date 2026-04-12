@@ -12,6 +12,7 @@ from typing import List, Optional
 
 from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from intanalysis.app_services import (
@@ -24,10 +25,12 @@ from intanalysis.app_services import (
     build_authenticated_user,
 )
 from intanalysis.attachments import AttachmentParser, build_attachment_metadata
+from intanalysis.knowledge_base import KnowledgeBaseService
 from intanalysis.models import (
     AttachmentEvidence,
     AuthenticatedUser,
     ConversationTurn,
+    KnowledgeDocType,
     QueryIntent,
     QueryTiming,
 )
@@ -64,6 +67,7 @@ class AppServices:
     system_resolver: IntelligenceSystemResolver
     chat_history: ChatHistoryManager
     recommendation_service: RecommendationService
+    knowledge_base_service: KnowledgeBaseService
 
 
 class ArticleInput(BaseModel):
@@ -109,6 +113,16 @@ class QueryRequest(BaseModel):
 
     query: str
     history: List[ConversationTurnInput] = Field(default_factory=list)
+
+
+class KnowledgeQueryRequest(BaseModel):
+    """Request model for chunk-based knowledge queries."""
+
+    query: str
+    doc_types: List[KnowledgeDocType] = Field(default_factory=list)
+    sources: List[str] = Field(default_factory=list)
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
 
 
 class EntityResponse(BaseModel):
@@ -197,6 +211,85 @@ class RecommendationsResponse(BaseModel):
     mode: str
     feed_summary: str
     cards: List[RecommendationCardResponse] = Field(default_factory=list)
+
+
+class KnowledgeChunkResponse(BaseModel):
+    """Serialized knowledge chunk metadata."""
+
+    id: str
+    document_id: str
+    chunk_no: int
+    text: str
+    page_no: Optional[int] = None
+    section_title: Optional[str] = None
+    anchor_label: Optional[str] = None
+    block_type: str
+
+
+class KnowledgeDocumentResponse(BaseModel):
+    """Serialized knowledge document metadata."""
+
+    id: str
+    doc_type: str
+    title: str
+    source: Optional[str] = None
+    published_at: Optional[str] = None
+    language: str
+    summary: str
+    url: Optional[str] = None
+    storage_path: Optional[str] = None
+    mime_type: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    entities: List[EntityResponse] = Field(default_factory=list)
+    created_at: str
+
+
+class KnowledgeCitationResponse(BaseModel):
+    """Knowledge-base citation payload."""
+
+    document_id: str
+    chunk_id: str
+    title: str
+    doc_type: str
+    source: Optional[str] = None
+    published_at: Optional[str] = None
+    snippet: str
+    anchor_label: Optional[str] = None
+    page_no: Optional[int] = None
+    storage_path: Optional[str] = None
+
+
+class KnowledgeQueryResponse(BaseModel):
+    """Knowledge query response payload."""
+
+    query: str
+    answer: str
+    citations: List[KnowledgeCitationResponse] = Field(default_factory=list)
+    related_documents: List[KnowledgeDocumentResponse] = Field(default_factory=list)
+    timing: QueryTiming
+
+
+class KnowledgeDocumentListResponse(BaseModel):
+    """Paginated knowledge document list."""
+
+    count: int
+    documents: List[KnowledgeDocumentResponse] = Field(default_factory=list)
+
+
+class KnowledgeDocumentDetailResponse(BaseModel):
+    """Knowledge document detail payload."""
+
+    document: KnowledgeDocumentResponse
+    chunks: List[KnowledgeChunkResponse] = Field(default_factory=list)
+
+
+class KnowledgeStatsResponse(BaseModel):
+    """Knowledge-base statistics."""
+
+    document_count: int
+    chunk_count: int
+    doc_type_counts: dict[str, int] = Field(default_factory=dict)
+    source_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class RegisterRequest(BaseModel):
@@ -344,6 +437,42 @@ def story_to_response(story) -> StoryResponse:
         ],
         sectors=pa.sectors,
         duplicate_count=story.duplicate_count,
+    )
+
+
+def knowledge_document_to_response(document) -> KnowledgeDocumentResponse:
+    """Convert a knowledge document to an API response."""
+    return KnowledgeDocumentResponse(
+        id=document.id,
+        doc_type=document.doc_type.value,
+        title=document.title,
+        source=document.source,
+        published_at=document.published_at,
+        language=document.language,
+        summary=document.summary,
+        url=document.url,
+        storage_path=document.storage_path,
+        mime_type=document.mime_type,
+        tags=document.tags,
+        entities=[
+            EntityResponse(name=entity.name, type=entity.type.value, confidence=entity.confidence)
+            for entity in document.entities
+        ],
+        created_at=document.created_at,
+    )
+
+
+def knowledge_chunk_to_response(chunk) -> KnowledgeChunkResponse:
+    """Convert a knowledge chunk to an API response."""
+    return KnowledgeChunkResponse(
+        id=chunk.id,
+        document_id=chunk.document_id,
+        chunk_no=chunk.chunk_no,
+        text=chunk.text,
+        page_no=chunk.page_no,
+        section_title=chunk.section_title,
+        anchor_label=chunk.anchor_label,
+        block_type=chunk.block_type,
     )
 
 
@@ -541,6 +670,7 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
         system_resolver=IntelligenceSystemResolver(verbose=verbose),
         chat_history=chat_history,
         recommendation_service=RecommendationService(app_db, chat_history),
+        knowledge_base_service=KnowledgeBaseService(app_db),
     )
     services = app.state.services
 
@@ -560,6 +690,12 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
                 "POST /query-with-attachments": "Route a user query with one temporary PDF/image attachment",
                 "GET /recommendations": "Get recommendation cards from recent chats or latest news",
                 "POST /ingest": "Ingest articles into the public knowledge base",
+                "POST /kb/query": "Run a chunk-based query against the knowledge base",
+                "GET /kb/documents": "List indexed knowledge documents",
+                "GET /kb/documents/{id}": "Get a knowledge document and its chunks",
+                "POST /kb/documents/upload": "Upload a PDF/image into the public knowledge base",
+                "POST /kb/rebuild-from-public-news": "Rebuild knowledge documents from public news stories",
+                "GET /kb/stats": "Get knowledge-base statistics",
                 "GET /stats": "Get public knowledge base statistics",
                 "GET /health": "Service health",
             },
@@ -647,6 +783,10 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
         try:
             articles = [art.model_dump() for art in request.articles]
             result = system.ingest(articles, force=request.force)
+            services.knowledge_base_service.ingest_news_stories(
+                storage_dir=public_storage,
+                stories=result.get("unique_stories", []),
+            )
             unique_stories_data = []
             for story in result.get("unique_stories", []):
                 story_data = {
@@ -810,6 +950,157 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
             await file.close()
             if temp_path and temp_path.exists():
                 temp_path.unlink(missing_ok=True)
+
+    @app.post("/kb/query", response_model=KnowledgeQueryResponse)
+    async def query_knowledge_base(
+        request: KnowledgeQueryRequest,
+        current_user: AuthenticatedUser = Depends(get_current_user),
+    ):
+        """Run a chunk-based query against the public knowledge base."""
+        public_namespace = services.context_resolver.get_public_namespace()
+        public_storage = services.context_resolver.get_storage_dir(public_namespace)
+
+        try:
+            result = services.knowledge_base_service.query(
+                storage_dir=public_storage,
+                query=request.query,
+                doc_types=[item.value for item in request.doc_types],
+                sources=request.sources,
+                date_from=request.date_from,
+                date_to=request.date_to,
+                llm=services.system_resolver.get_system(
+                    storage_dir=public_storage,
+                    legacy_storage_dir=services.dataset_root,
+                ).llm,
+            )
+            return KnowledgeQueryResponse(
+                query=result.query,
+                answer=result.answer,
+                citations=[KnowledgeCitationResponse(**citation.model_dump()) for citation in result.citations],
+                related_documents=[
+                    knowledge_document_to_response(document)
+                    for document in result.related_documents
+                ],
+                timing=result.timing,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get("/kb/documents", response_model=KnowledgeDocumentListResponse)
+    async def list_knowledge_documents(
+        current_user: AuthenticatedUser = Depends(get_current_user),
+        limit: int = 20,
+        offset: int = 0,
+        doc_type: Optional[KnowledgeDocType] = None,
+        source: Optional[str] = None,
+    ):
+        """List public knowledge base documents."""
+        try:
+            documents, total = services.knowledge_base_service.list_documents(
+                limit=min(max(limit, 1), 100),
+                offset=max(offset, 0),
+                doc_type=doc_type.value if doc_type else None,
+                source=source,
+            )
+            return KnowledgeDocumentListResponse(
+                count=total,
+                documents=[knowledge_document_to_response(document) for document in documents],
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get("/kb/documents/{document_id}", response_model=KnowledgeDocumentDetailResponse)
+    async def get_knowledge_document(
+        document_id: str,
+        current_user: AuthenticatedUser = Depends(get_current_user),
+    ):
+        """Return one knowledge document and its chunk summaries."""
+        document, chunks = services.knowledge_base_service.get_document(document_id)
+        if document is None:
+            raise HTTPException(status_code=404, detail="Knowledge document not found")
+        return KnowledgeDocumentDetailResponse(
+            document=knowledge_document_to_response(document),
+            chunks=[knowledge_chunk_to_response(chunk) for chunk in chunks],
+        )
+
+    @app.get("/kb/documents/{document_id}/file")
+    async def get_knowledge_document_file(
+        document_id: str,
+        current_user: AuthenticatedUser = Depends(get_current_user),
+    ):
+        """Download the stored original file for an attachment document."""
+        file_path = services.knowledge_base_service.get_document_file_path(document_id)
+        if file_path is None or not file_path.exists():
+            raise HTTPException(status_code=404, detail="Knowledge document file not found")
+        return FileResponse(path=file_path, filename=file_path.name)
+
+    @app.post("/kb/documents/upload", response_model=KnowledgeDocumentResponse)
+    async def upload_knowledge_document(
+        file: UploadFile = File(...),
+        current_user: AuthenticatedUser = Depends(get_current_user),
+    ):
+        """Upload an attachment and store it as a public knowledge document."""
+        if not current_user.is_admin:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
+
+        file_name = file.filename or "attachment"
+        suffix = Path(file_name).suffix.lower()
+        if suffix not in {".pdf", ".png", ".jpg", ".jpeg"}:
+            raise HTTPException(status_code=400, detail="Unsupported attachment type")
+
+        public_namespace = services.context_resolver.get_public_namespace()
+        public_storage = services.context_resolver.get_storage_dir(public_namespace)
+        try:
+            raw_bytes = await file.read()
+            if not raw_bytes:
+                raise HTTPException(status_code=400, detail="Attachment is empty")
+            if len(raw_bytes) > MAX_ATTACHMENT_BYTES:
+                raise HTTPException(status_code=400, detail="Attachment exceeds 10 MB limit")
+            document = services.knowledge_base_service.upload_attachment(
+                storage_dir=public_storage,
+                file_name=file_name,
+                content_type=file.content_type,
+                raw_bytes=raw_bytes,
+            )
+            return knowledge_document_to_response(document)
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        finally:
+            await file.close()
+
+    @app.post("/kb/rebuild-from-public-news")
+    async def rebuild_knowledge_from_public_news(current_user: AuthenticatedUser = Depends(get_current_user)):
+        """Rebuild the knowledge index from existing public news stories."""
+        if not current_user.is_admin:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
+
+        public_namespace = services.context_resolver.get_public_namespace()
+        public_storage = services.context_resolver.get_storage_dir(public_namespace)
+        system = services.system_resolver.get_system(
+            storage_dir=public_storage,
+            legacy_storage_dir=services.dataset_root,
+        )
+        try:
+            result = services.knowledge_base_service.rebuild_news_from_stories(
+                storage_dir=public_storage,
+                stories=system.vector_store.stories,
+            )
+            return result
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get("/kb/stats", response_model=KnowledgeStatsResponse)
+    async def get_knowledge_stats(current_user: AuthenticatedUser = Depends(get_current_user)):
+        """Return public knowledge-base statistics."""
+        try:
+            stats = services.knowledge_base_service.get_stats()
+            return KnowledgeStatsResponse(**stats)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.get("/recommendations", response_model=RecommendationsResponse)
     async def get_recommendations(current_user: AuthenticatedUser = Depends(get_current_user)):
