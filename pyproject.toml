@@ -38,7 +38,9 @@ dependencies = [
 
     # Dataset 
     "feedparser>=6.0.12",
-    "pypdf>=5.4.0"
+    "pypdf>=5.4.0",
+    # Stocks
+    "baostock>=0.8.9"
 ]
 
 [project.optional-dependencies]

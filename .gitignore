@@ -35,6 +35,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.AGENTS.md
 
 # -----------------------------------------------------------------------------
 # PyInstaller
@@ -303,6 +304,10 @@ secrets/
 # Log files
 logs/
 *.log
+.codex-api-spec
+.codex-log
+.codex-tmp
+
 
 # Temporary files
 tmp/
@@ -411,3 +416,5 @@ docs/PROJECT_ANALYSIS_ZH.md
 docs/PROJECT_QUICKSTART_ZH.md
 docs/WORKFLOW_GRAPH.md
 docs/graphs/full_graph.mmd
+
+intanalysis/AGENTS.md

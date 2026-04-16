@@ -1,598 +1,299 @@
-# IntAnalysis - AI-Powered Financial News Intelligence System
+# IntAnalysis（市场新闻智能分析系统）
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![LangGraph](https://img.shields.io/badge/Framework-LangGraph-green.svg)](https://langchain-ai.github.io/langgraph/)
+一个基于 **LangGraph + FastAPI + React** 的金融新闻智能分析项目，支持：
+- 新闻摄取与去重
+- 实体抽取与股票影响分析
+- 自然语言问答（含对话上下文）
+- 知识库检索（含附件 PDF/图片）
+- 每日推荐卡片
+- 股票行情查询（BaoStock 本地适配）
 
-An AI-powered multi-agent system for processing financial news using LangGraph. The system identifies unique news stories from redundant coverage, extracts market entities, maps news to impacted stocks, and provides context-aware query responses for traders and investors.
+---
 
-## 🎯 Key Features
+## 1. 核心能力
 
-| Feature | Description | Target Accuracy |
-|---------|-------------|-----------------|
-| **Intelligent Deduplication** | Identifies duplicate articles using semantic embeddings | ≥95% |
-| **Entity Extraction** | Extracts companies, sectors, regulators, people | ≥90% precision |
-| **Stock Impact Mapping** | Maps news to impacted stocks with confidence scores | Direct: 100%, Sector: 60-80% |
-| **Context-Aware Queries** | Semantic search with entity expansion and re-ranking | Top-5 relevance |
-| **Hybrid Search** | Combines dense vectors (FAISS) + sparse (BM25) | Improved recall |
-| **AI Explanations** | Natural language answers powered by Claude | - |
+### 1.1 新闻智能处理
+- 多源新闻摄取
+- 语义去重（聚类为唯一事件）
+- 实体抽取（公司/行业/监管等）
+- 股票影响映射（含置信度）
 
-## 📐 System Architecture
+### 1.2 问答与知识库
+- 自然语言问答（金融问答 + 通用问答路由）
+- 对话短期上下文补全
+- 知识库引用式问答（`/kb/query`）
+- 附件临时问答（`/query-with-attachments`）
 
+### 1.3 推荐与会话
+- 基于用户历史兴趣生成推荐卡片
+- 用户级会话隔离（聊天记录按账号隔离）
+- 公共知识库 + 默认私有命名空间
+
+### 1.4 股票查询（新增）
+通过 BaoStock 本地适配层提供 4 个高频接口（无需独立 MCP 进程）：
+- `POST /stocks/basic`：基础信息
+- `POST /stocks/kdata`：K 线
+- `POST /stocks/index`：指数
+- `POST /stocks/valuation`：估值
+
+统一返回：
+```json
+{
+  "query_type": "kdata",
+  "code": "sh.600000",
+  "rows": [],
+  "row_count": 0,
+  "meta": {
+    "frequency": "d",
+    "start_date": "2024-01-01",
+    "end_date": "2024-01-31",
+    "adjustflag": "3"
+  }
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         LangGraph Multi-Agent Pipeline                   │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐            │
-│   │ Ingestion│──▶│  Dedup   │──▶│  Entity  │──▶│  Stock   │            │
-│   │  Agent   │   │  Agent   │   │  Extract │   │  Impact  │            │
-│   └──────────┘   └──────────┘   └──────────┘   └──────────┘            │
-│        │                                              │                  │
-│        │                                              ▼                  │
-│        │         ┌──────────┐                  ┌──────────┐            │
-│        │         │  Query   │◀─────────────────│ Storage  │            │
-│        │         │  Agent   │                  │  Agent   │            │
-│        │         └──────────┘                  └──────────┘            │
-│        │              │                              │                  │
-│        ▼              ▼                              ▼                  │
-│   ┌─────────────────────────────────────────────────────────────────┐  │
-│   │                    Vector Store (FAISS + BM25)                   │  │
-│   └─────────────────────────────────────────────────────────────────┘  │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
-```
 
-### Agent Responsibilities
+---
 
-| Agent | Function | Technology |
-|-------|----------|------------|
-| **Ingestion Agent** | Validates and normalizes raw articles | Pydantic models |
-| **Deduplication Agent** | Clusters similar articles using embeddings | Sentence-Transformers, Union-Find |
-| **Entity Extraction Agent** | Extracts entities using NER + rules + LLM | spaCy, rule-based, Claude fallback |
-| **Stock Impact Agent** | Maps entities to stock symbols with confidence | Custom mapping + LLM |
-| **Storage Agent** | Indexes articles in vector store | FAISS HNSW, BM25Okapi |
-| **Query Agent** | Hybrid search + re-ranking + AI answer | CrossEncoder, Claude |
+## 2. 技术栈
 
-## 🚀 Quick Start
-
-### Prerequisites
-
+### 后端
 - Python 3.9+
-- Node.js 18+ (for frontend)
-- pip or conda
-- DeepSeek API key (for LLM features)
+- FastAPI
+- LangGraph / LangChain
+- FAISS + BM25
+- spaCy
+- SQLite（应用数据）
+- BaoStock（股票行情）
 
-### Installation
+### 前端
+- React
+- Vite
+- Axios
+
+---
+
+## 3. 项目结构
+
+```text
+MarketNewsAnalysis/
+├── api/                        # FastAPI 入口
+│   └── main.py
+├── intanalysis/                # 核心业务模块
+│   ├── core.py                 # 系统主入口
+│   ├── workflow.py             # LangGraph 流程
+│   ├── agents.py               # 多智能体逻辑
+│   ├── knowledge_base.py       # 知识库检索
+│   ├── app_services.py         # 服务注入/鉴权/会话
+│   └── stocks_service.py       # 股票查询服务（BaoStock 适配）
+├── frontend/                   # React 前端
+│   ├── src/App.jsx
+│   └── src/api.js
+├── tests/                      # 测试
+├── dataset/                    # 本地数据目录
+├── 启动文档.md                 # 快速启动说明（中文）
+└── README.md
+```
+
+---
+
+## 4. 本地安装
+
+### 4.1 创建环境并安装依赖
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/MarketNewsAnalysis.git
+# 进入项目
 cd MarketNewsAnalysis
 
-# Create virtual environment (recommended)
+# 建议使用虚拟环境
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# Install the package in development mode
+# 安装项目依赖
 pip install -e .
 
-# Download spaCy model for NER
+# 股票模块依赖
+pip install baostock
+
+# NLP 模型
 python -m spacy download en_core_web_sm
 ```
 
-### Environment Setup
-
-Create a `.env` file in the project root:
+也可使用仓库脚本创建 conda 环境：
 
 ```bash
-# Required for LLM features (AI explanations, enhanced entity extraction)
-API_KEY=your_deepseek_api_key_here
+bash scripts/setup_conda_env.sh
+```
+
+---
+
+## 5. 启动方式
+
+### 5.1 启动后端
+
+```bash
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+可访问：
+- Swagger 文档：`http://localhost:8000/docs`
+- 健康检查：`http://localhost:8000/health`
+
+### 5.2 启动前端
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+默认地址：`http://localhost:5173`
+
+---
+
+## 6. 环境变量（可选）
+
+在项目根目录创建 `.env`：
+
+```bash
+API_KEY=your_api_key
 BASE_URL=https://api.deepseek.com
 MODEL_ID=deepseek-chat
-
-# Optional: Customize model or endpoint
-# DEEPSEEK_MODEL=deepseek-chat
-# DEEPSEEK_BASE_URL=https://api.deepseek.com
 ```
 
-### Verify Installation
-
-```bash
-# Run the test suite
-pytest tests/ -v
-
-# Check the installation
-python -c "from intanalysis import IntelligenceSystem; print('✅ Installation successful!')"
-```
+说明：
+- 若未配置可用 LLM，部分生成式能力会降级或不可用。
+- 股票查询接口不依赖上述 LLM 配置。
 
 ---
 
-## 📰 Generating the Dataset
+## 7. API 概览
 
-The system includes RSS feed scrapers to collect real financial news articles.
+### 7.1 鉴权
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/logout`
+- `GET /auth/me`
 
-### One-Time Fetch
+### 7.2 新闻与问答
+- `POST /ingest`
+- `POST /query`
+- `POST /query-with-attachments`
+- `GET /recommendations`
+- `GET /stats`
 
-```bash
-# Run the article fetcher (fetches from 10+ Indian financial news sources)
-python dataset/articals.py
-```
+### 7.3 知识库
+- `POST /kb/query`
+- `GET /kb/documents`
+- `GET /kb/documents/{id}`
+- `GET /kb/documents/{id}/file`
+- `POST /kb/documents/upload`
+- `POST /kb/rebuild-from-public-news`
+- `GET /kb/stats`
 
-### Continuous Monitoring
+### 7.4 股票模块
+- `POST /stocks/basic`
+- `POST /stocks/kdata`
+- `POST /stocks/index`
+- `POST /stocks/valuation`
 
-```bash
-# Start RSS feed monitor (checks every 5 minutes for new articles)
-python dataset/feeds.py
-```
-
-This will:
-- ✅ Fetch articles from 10+ Indian financial news RSS feeds
-- ✅ Filter articles from the last 30 days
-- ✅ Deduplicate and save to `dataset/rss_feeds_all.json`
-- ✅ Track seen articles in `dataset/seen_articles.json`
-
-### RSS Feed Sources
-
-| Source | Feed |
-|--------|------|
-| Economic Times | Top Stories |
-| Business Standard | Top Stories |
-| Moneycontrol | Latest News |
-| LiveMint | Companies |
-| The Hindu Business | Business |
-| NDTV Business | Latest |
-| Indian Express | Business |
-| Financial Express | Markets |
-| Trade Brains | Latest |
-
-### Custom Keywords Filter
-
-```python
-from dataset.feeds import NewsRSSMonitor
-
-monitor = NewsRSSMonitor(check_interval=300)  # 5 minutes
-
-# Filter for specific keywords
-monitor.monitor_continuous(
-    keywords=["HDFC", "RBI", "banking", "Sensex", "Nifty"],
-    save_to_file=True
-)
-```
-
-## 📖 Usage Examples
-
-### 🖥️ Full Stack Demo (Recommended)
-
-The easiest way to experience the system is with the **FastAPI backend + React frontend**:
-
-#### Terminal 1: Start the Backend API
-
-```bash
-# Activate virtual environment
-source .venv/bin/activate
-
-# Start FastAPI server with uvicorn
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-You should see:
-```
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process
-✅ Intelligence System initialized
-```
-
-#### Terminal 2: Start the Frontend UI
-
-```bash
-# Navigate to frontend directory
-cd frontend
-
-# Install dependencies (first time only)
-npm install
-
-# Start development server
-npm run dev
-```
-
-You should see:
-```
-VITE v5.0.8  ready in 300 ms
-
-➜  Local:   http://localhost:5173/
-➜  Network: http://192.168.x.x:5173/
-```
-
-#### Open the Web UI
-
-Navigate to **http://localhost:5173** in your browser.
-
-<!-- Add your screenshot: docs/images/web-ui.png -->
-
-**Features available in the UI:**
-
-| Tab | Description |
-|-----|-------------|
-| 🔍 **Query** | Search financial news with natural language queries |
-| 📥 **Ingest** | Paste JSON articles or load from RSS feeds |
-| 🎮 **Demo** | One-click demo with sample articles |
-| 📊 **Stats** | View system statistics (indexed stories, etc.) |
-
-#### Example Workflow
-
-1. **Load Data**: Click "Load from RSS" or paste articles in JSON format
-2. **Ingest**: Click "Ingest Articles" to process them
-3. **Query**: Type queries like:
-   - `"HDFC Bank news"`
-   - `"RBI policy changes"`
-   - `"Banking sector update"`
-   - `"What's happening with Infosys?"`
-4. **View Results**: See AI-generated summaries with entity highlights
+错误语义：
+- 参数错误：`400`
+- 未登录：`401`
+- 上游数据源异常（BaoStock）：`502`
+- 其他异常：`500`
 
 ---
 
-### 🐍 Interactive Demo (CLI)
+## 8. 股票接口示例
+
+### 8.1 基础信息
 
 ```bash
-python run.py
+curl -X POST "http://localhost:8000/stocks/basic" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"600000"}'
 ```
 
-The interactive demo provides:
-- ✅ Automatic article ingestion from RSS feeds
-- ✅ Incremental updates (only new articles processed)
-- ✅ Query interface with AI-powered answers
-- ✅ Persistence across sessions
-
----
-
-### 📚 Python API
-
-#### Basic Usage
-
-```python
-from intanalysis import IntelligenceSystem
-
-# Initialize the system
-system = IntelligenceSystem(verbose=True)
-
-# Ingest articles
-articles = [
-    {
-        "title": "HDFC Bank announces 15% dividend, board approves stock buyback",
-        "content": "HDFC Bank Limited declared a 15% dividend for its shareholders...",
-        "source": "Economic Times",
-        "url": "https://example.com/hdfc-news"
-    },
-    {
-        "title": "RBI raises repo rate by 25bps to 6.75%, citing inflation concerns",
-        "content": "The Reserve Bank of India announced a rate hike today...",
-        "source": "Business Standard",
-        "url": "https://example.com/rbi-news"
-    }
-]
-
-result = system.ingest(articles)
-print(f"Unique stories: {result['unique_count']}")
-print(f"Duplicates: {result['duplicate_count']}")
-```
-
-#### Querying the System
-
-```python
-# Query for company-specific news
-response = system.query("HDFC Bank news")
-print(f"Query: {response.query}")
-print(f"Found: {len(response.stories)} relevant stories")
-print(f"AI Answer: {response.explanation}")
-
-for story in response.stories:
-    article = story.primary_article.article
-    print(f"\n📰 {article.title}")
-    print(f"   Source: {article.source}")
-    print(f"   Entities: {[e.name for e in story.primary_article.entities]}")
-    print(f"   Stock Impacts: {[i.symbol for i in story.primary_article.stock_impacts]}")
-```
-
-#### Query Patterns
-
-| Query Type | Example | Returns |
-|------------|---------|---------|
-| Company-specific | "HDFC Bank news" | Direct mentions + sector news |
-| Sector-wide | "Banking sector update" | All banking-related articles |
-| Regulator-specific | "RBI policy changes" | RBI-specific articles |
-| Thematic | "Interest rate impact" | Semantically related articles |
-
-#### Working with Entities
-
-```python
-# Access extracted entities
-for story in response.stories:
-    for entity in story.primary_article.entities:
-        print(f"{entity.name} ({entity.type.value}): {entity.confidence:.0%}")
-```
-
-#### Stock Impact Analysis
-
-```python
-# Get stock impacts with confidence scores
-for story in response.stories:
-    for impact in story.primary_article.stock_impacts:
-        print(f"{impact.symbol}: {impact.confidence:.0%} ({impact.impact_type.value})")
-        print(f"  Reasoning: {impact.reasoning}")
-```
-
-### 🌐 FastAPI REST API
+### 8.2 K 线
 
 ```bash
-# Start the API server
-uvicorn api.main:app --reload --port 8000
-
-# With auto-reload for development
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-#### Interactive API Documentation
-
-Once the server is running, access:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-#### API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/ingest` | POST | Ingest articles into the system |
-| `/query` | POST | Query the system with natural language |
-| `/stats` | GET | Get system statistics |
-| `/health` | GET | Health check |
-| `/stories` | GET | List all indexed stories |
-| `/chat/history` | GET | Get chat history |
-| `/chat/clear` | POST | Clear chat history |
-
-#### Example API Calls
-
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# Get system stats
-curl http://localhost:8000/stats
-
-# Ingest articles
-curl -X POST "http://localhost:8000/ingest" \
+curl -X POST "http://localhost:8000/stocks/kdata" \
   -H "Content-Type: application/json" \
   -d '{
-    "articles": [
-      {
-        "title": "HDFC Bank announces 15% dividend",
-        "content": "HDFC Bank Limited declared a 15% dividend for shareholders...",
-        "source": "Economic Times",
-        "url": "https://example.com/hdfc-news"
-      }
-    ]
+    "code":"600000",
+    "start_date":"2024-01-01",
+    "end_date":"2024-01-31",
+    "frequency":"d",
+    "adjustflag":"3"
   }'
+```
 
-# Query the system
-curl -X POST "http://localhost:8000/query" \
+### 8.3 指数
+
+```bash
+curl -X POST "http://localhost:8000/stocks/index" \
   -H "Content-Type: application/json" \
-  -d '{"query": "HDFC Bank news"}'
+  -d '{
+    "code":"000300",
+    "start_date":"2024-01-01",
+    "end_date":"2024-03-01",
+    "frequency":"d"
+  }'
 ```
 
-#### Python Requests Example
+### 8.4 估值
 
-```python
-import requests
-
-BASE_URL = "http://localhost:8000"
-
-# Ingest articles
-articles = {
-    "articles": [
-        {
-            "title": "RBI raises repo rate by 25bps",
-            "content": "The Reserve Bank of India announced a rate hike...",
-            "source": "Business Standard"
-        }
-    ]
-}
-response = requests.post(f"{BASE_URL}/ingest", json=articles)
-print(response.json())
-
-# Query
-query = {"query": "RBI interest rate"}
-response = requests.post(f"{BASE_URL}/query", json=query)
-result = response.json()
-print(f"Found {len(result['stories'])} stories")
-print(f"AI Summary: {result['explanation']}")
+```bash
+curl -X POST "http://localhost:8000/stocks/valuation" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code":"600000",
+    "start_date":"2024-01-01",
+    "end_date":"2024-03-01",
+    "frequency":"d"
+  }'
 ```
 
 ---
 
-### ⚛️ React Frontend
+## 9. 测试
+
+建议先跑关键回归：
 
 ```bash
-cd frontend
-npm install
-npm run dev
+pytest -q tests/test_stocks_service.py tests/test_stocks_api.py tests/test_auth_api.py
 ```
 
-Access the web interface at **http://localhost:5173**
-
-**Note:** The backend API must be running on port 8000 for the frontend to work.
-
----
-
-### 💻 Command Line Interface
+如需更完整测试：
 
 ```bash
-# Ingest from file
-intanalysis ingest --file articles.json
+pytest -q
+```
 
-# Query from CLI
-intanalysis query "Banking sector news"
+前端构建验证：
+
+```bash
+npm --prefix frontend run build
 ```
 
 ---
 
-## 🏃 Quick Run Commands
+## 10. 常见问题
 
-| What | Command |
-|------|---------|
-| **Full Stack** | `uvicorn api.main:app --reload` + `cd frontend && npm run dev` |
-| **Backend Only** | `uvicorn api.main:app --reload --port 8000` |
-| **CLI Demo** | `python run.py` |
-| **Generate Data** | `python dataset/feeds.py` |
-| **Run Tests** | `pytest tests/ -v` |
+### 10.1 401 未授权
+未登录或会话失效，重新登录即可。
 
-## 🗂️ Project Structure
+### 10.2 502（股票接口）
+通常是 BaoStock 上游异常或依赖不可用：
+- 确认已安装 `baostock`
+- 确认运行环境网络可访问 BaoStock
 
-```
-MarketNewsAnalysis/
-├── intanalysis/              # Core package
-│   ├── __init__.py          # Package exports
-│   ├── agents.py            # 6 LangGraph agents
-│   ├── core.py              # IntelligenceSystem main interface
-│   ├── embeddings.py        # EmbeddingService, VectorStore, Reranker
-│   ├── llm.py               # LLM service (Claude)
-│   ├── mappings.py          # Stock/sector/regulator mappings
-│   ├── models.py            # Pydantic data models
-│   ├── persistence.py       # Disk persistence manager
-│   ├── workflow.py          # LangGraph workflow definitions
-│   └── cli.py               # Command line interface
-├── api/                     # FastAPI REST API
-│   └── main.py              # API endpoints
-├── frontend/                # React web interface
-│   ├── package.json         # Node.js dependencies
-│   ├── vite.config.js       # Vite configuration
-│   └── src/
-│       ├── App.jsx          # Main React component
-│       ├── api.js           # API client
-│       └── index.css        # Styles
-├── dataset/                 # Data generation & persistence
-│   ├── articals.py          # One-time RSS fetcher
-│   ├── feeds.py             # Continuous RSS monitor
-│   ├── rss_feeds_all.json   # Collected articles
-│   ├── seen_articles.json   # Processed article cache
-│   ├── vector_store.pkl     # FAISS index
-│   └── stories.pkl          # Story metadata
-├── tests/                   # Test suite (149 tests)
-│   ├── conftest.py          # Fixtures
-│   ├── test_models.py       # Model tests
-│   ├── test_agents.py       # Agent tests
-│   ├── test_embeddings.py   # Embedding tests
-│   ├── test_integration.py  # Integration tests
-│   └── ...
-├── docs/                    # Documentation
-│   ├── ARCHITECTURE.md      # System architecture
-│   ├── BENCHMARKS.md        # Performance metrics
-│   ├── API_SETUP.md         # API documentation
-│   └── QUICKSTART.md        # Quick start guide
-├── run.py                   # Interactive CLI demo
-├── pyproject.toml           # Package configuration
-└── README.md                # This file
-```
+### 10.3 前端无数据
+确认后端已启动在 `8000` 端口，且前端请求代理配置正常。
 
-## 💾 Persistence
+---
 
-The system automatically persists state to disk:
+## 11. 说明
 
-| File | Purpose | Format |
-|------|---------|--------|
-| `seen_articles.json` | Track processed articles | JSON array of MD5 hashes |
-| `vector_store.pkl` | FAISS index + embeddings | Pickle (FAISS serialized) |
-| `stories.pkl` | Story metadata | Pickle |
-
-### Benefits
-
-- 🚀 **Instant startup** on subsequent runs (~2s vs ~120s)
-- 💰 **Cost savings** - no re-embedding of existing articles
-- ⚡ **Incremental updates** - only process new articles
-
-### Clear Cache
-
-```python
-system.persistence.clear_cache()
-```
-
-## 🧪 Testing
-
-The project includes a comprehensive test suite with **149 tests**.
-
-```bash
-# Run all tests
-pytest tests/ -v
-
-# Run with coverage report
-pytest tests/ --cov=intanalysis --cov-report=html
-
-# Run specific test file
-pytest tests/test_agents.py -v
-
-# Run integration tests only
-pytest tests/test_integration.py -v
-
-# Run with markers
-pytest tests/ -v -m "not slow"
-```
-
-### Test Coverage
-
-| Module | Tests | Coverage |
-|--------|-------|----------|
-| `models.py` | 28 | Data models, validation |
-| `agents.py` | 24 | All 6 agents |
-| `embeddings.py` | 16 | Vector store, reranker |
-| `mappings.py` | 18 | Stock/sector mappings |
-| `persistence.py` | 15 | Save/load operations |
-| `workflow.py` | 21 | LangGraph flow |
-| `integration` | 27 | End-to-end tests |
-
-## 📊 Performance Benchmarks
-
-See [BENCHMARKS.md](docs/BENCHMARKS.md) for detailed performance metrics.
-
-| Metric | Value |
-|--------|-------|
-| Deduplication Accuracy | ≥95% |
-| Entity Extraction Precision | ≥90% |
-| Query Latency (cached) | <500ms |
-| Ingestion Speed | ~3 articles/sec |
-| Storage per 1000 articles | ~10 MB |
-
-## 🔧 Configuration
-
-### Deduplication Threshold
-
-```python
-from intanalysis.agents import DeduplicationAgent
-
-# Lower threshold = more aggressive deduplication
-agent = DeduplicationAgent(threshold=0.60)  # Default: 0.60
-```
-
-### Hybrid Search Alpha
-
-```python
-# 0.7 = 70% dense (semantic) + 30% sparse (keyword)
-results = vector_store.search(embedding, query_text, alpha=0.7)
-```
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) for details.
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Submit a pull request
-
-## 📚 References
-
-- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
-- [Sentence Transformers](https://www.sbert.net/)
-- [FAISS](https://github.com/facebookresearch/faiss)
-- [spaCy NER](https://spacy.io/)
-
+- 启动速查请见：[启动文档.md](./启动文档.md)
+- 股票接口详细对接文档请见：`.codex-api-spec/` 目录

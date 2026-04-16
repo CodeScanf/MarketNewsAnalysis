@@ -8,7 +8,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +26,7 @@ from intanalysis.app_services import (
 )
 from intanalysis.attachments import AttachmentParser, build_attachment_metadata
 from intanalysis.knowledge_base import KnowledgeBaseService
+from intanalysis.stocks_service import StockDataService
 from intanalysis.models import (
     AttachmentEvidence,
     AuthenticatedUser,
@@ -68,6 +69,7 @@ class AppServices:
     chat_history: ChatHistoryManager
     recommendation_service: RecommendationService
     knowledge_base_service: KnowledgeBaseService
+    stock_data_service: StockDataService
 
 
 class ArticleInput(BaseModel):
@@ -290,6 +292,50 @@ class KnowledgeStatsResponse(BaseModel):
     chunk_count: int
     doc_type_counts: dict[str, int] = Field(default_factory=dict)
     source_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class StockBasicRequest(BaseModel):
+    """股票基础信息查询请求。"""
+
+    code: str
+
+
+class StockKDataRequest(BaseModel):
+    """股票 K 线查询请求。"""
+
+    code: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    frequency: str = "d"
+    adjustflag: str = "3"
+
+
+class StockIndexRequest(BaseModel):
+    """指数查询请求。"""
+
+    code: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    frequency: str = "d"
+
+
+class StockValuationRequest(BaseModel):
+    """估值查询请求。"""
+
+    code: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    frequency: str = "d"
+
+
+class StockQueryResponse(BaseModel):
+    """股票查询响应。"""
+
+    query_type: str
+    code: str
+    rows: List[dict[str, Any]] = Field(default_factory=list)
+    row_count: int
+    meta: dict[str, Optional[str]] = Field(default_factory=dict)
 
 
 class RegisterRequest(BaseModel):
@@ -671,6 +717,7 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
         chat_history=chat_history,
         recommendation_service=RecommendationService(app_db, chat_history),
         knowledge_base_service=KnowledgeBaseService(app_db),
+        stock_data_service=StockDataService(),
     )
     services = app.state.services
 
@@ -689,6 +736,10 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
                 "POST /query": "Route and answer a user query",
                 "POST /query-with-attachments": "Route a user query with one temporary PDF/image attachment",
                 "GET /recommendations": "Get recommendation cards from recent chats or latest news",
+                "POST /stocks/basic": "Get stock basic profile",
+                "POST /stocks/kdata": "Get stock kline data",
+                "POST /stocks/index": "Get index kline data",
+                "POST /stocks/valuation": "Get stock valuation metrics",
                 "POST /ingest": "Ingest articles into the public knowledge base",
                 "POST /kb/query": "Run a chunk-based query against the knowledge base",
                 "GET /kb/documents": "List indexed knowledge documents",
@@ -950,6 +1001,90 @@ def create_app(dataset_root: str = "dataset", verbose: bool = True) -> FastAPI:
             await file.close()
             if temp_path and temp_path.exists():
                 temp_path.unlink(missing_ok=True)
+
+    @app.post("/stocks/basic", response_model=StockQueryResponse)
+    async def get_stock_basic(
+        request: StockBasicRequest,
+        current_user: AuthenticatedUser = Depends(get_current_user),
+    ):
+        """查询股票基础信息。"""
+        del current_user
+        try:
+            payload = services.stock_data_service.get_stock_basic(code=request.code)
+            return StockQueryResponse(**payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.post("/stocks/kdata", response_model=StockQueryResponse)
+    async def get_stock_kdata(
+        request: StockKDataRequest,
+        current_user: AuthenticatedUser = Depends(get_current_user),
+    ):
+        """查询股票 K 线。"""
+        del current_user
+        try:
+            payload = services.stock_data_service.get_stock_kdata(
+                code=request.code,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                frequency=request.frequency,
+                adjustflag=request.adjustflag,
+            )
+            return StockQueryResponse(**payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.post("/stocks/index", response_model=StockQueryResponse)
+    async def get_stock_index(
+        request: StockIndexRequest,
+        current_user: AuthenticatedUser = Depends(get_current_user),
+    ):
+        """查询指数 K 线。"""
+        del current_user
+        try:
+            payload = services.stock_data_service.get_index_data(
+                code=request.code,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                frequency=request.frequency,
+            )
+            return StockQueryResponse(**payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.post("/stocks/valuation", response_model=StockQueryResponse)
+    async def get_stock_valuation(
+        request: StockValuationRequest,
+        current_user: AuthenticatedUser = Depends(get_current_user),
+    ):
+        """查询估值指标。"""
+        del current_user
+        try:
+            payload = services.stock_data_service.get_valuation_data(
+                code=request.code,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                frequency=request.frequency,
+            )
+            return StockQueryResponse(**payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.post("/kb/query", response_model=KnowledgeQueryResponse)
     async def query_knowledge_base(

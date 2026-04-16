@@ -1,6 +1,7 @@
 """Embedding and vector store services with hybrid search."""
 
 from typing import Optional, List, Tuple
+import os
 import re
 import numpy as np
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -12,6 +13,11 @@ from intanalysis.models import ProcessedArticle, UniqueStory
 
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
 _TOKEN_RE = re.compile(r"[\u4e00-\u9fff]+|[a-z0-9_.-]+")
+
+
+def get_model_device() -> str:
+    """Default to CPU unless the caller explicitly opts into another device."""
+    return os.getenv("INTANALYSIS_DEVICE", "cpu").strip() or "cpu"
 
 
 def tokenize_text(text: str) -> list[str]:
@@ -41,9 +47,10 @@ class EmbeddingService:
     
     _instance: Optional["EmbeddingService"] = None
     
-    def __init__(self, model_name: str = "BAAI/bge-base-zh-v1.5"):
+    def __init__(self, model_name: str = "BAAI/bge-base-zh-v1.5", device: Optional[str] = None):
         """Use a Chinese-friendly embedding model for semantic retrieval."""
-        self.model = SentenceTransformer(model_name)
+        self.device = device or get_model_device()
+        self.model = SentenceTransformer(model_name, device=self.device)
         self.dimension = self.model.get_sentence_embedding_dimension()
     
     @classmethod
@@ -66,8 +73,9 @@ class Reranker:
     
     _instance: Optional["Reranker"] = None
     
-    def __init__(self, model_name: str = "BAAI/bge-reranker-base"):
-        self.model = CrossEncoder(model_name, max_length=512)
+    def __init__(self, model_name: str = "BAAI/bge-reranker-base", device: Optional[str] = None):
+        self.device = device or get_model_device()
+        self.model = CrossEncoder(model_name, max_length=512, device=self.device)
     
     @classmethod
     def get_instance(cls) -> "Reranker":

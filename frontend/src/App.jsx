@@ -8,6 +8,10 @@ import {
   getChatHistory,
   getCurrentUser,
   getRecommendations,
+  getStockBasic,
+  getStockIndex,
+  getStockKData,
+  getStockValuation,
   listKnowledgeDocuments,
   loginUser,
   logoutUser,
@@ -67,6 +71,15 @@ const emptyLoginForm = {
   password: '',
 };
 
+const defaultStockForm = {
+  code: '',
+  query_type: 'basic',
+  start_date: '',
+  end_date: '',
+  frequency: 'd',
+  adjustflag: '3',
+};
+
 function App() {
   const [activeView, setActiveView] = useState('chat');
   const [messages, setMessages] = useState([]);
@@ -87,6 +100,10 @@ function App() {
   const [knowledgeError, setKnowledgeError] = useState('');
   const [knowledgeUploadFile, setKnowledgeUploadFile] = useState(null);
   const [knowledgeUploadStatus, setKnowledgeUploadStatus] = useState('');
+  const [stockLoading, setStockLoading] = useState(false);
+  const [stockError, setStockError] = useState('');
+  const [stockForm, setStockForm] = useState(defaultStockForm);
+  const [stockResult, setStockResult] = useState(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [authMode, setAuthMode] = useState('login');
@@ -298,6 +315,10 @@ function App() {
       setKnowledgeError('');
       setKnowledgeUploadFile(null);
       setKnowledgeUploadStatus('');
+      setStockLoading(false);
+      setStockError('');
+      setStockForm(defaultStockForm);
+      setStockResult(null);
       setSelectedFile(null);
       setFileError('');
       setAuthError('');
@@ -508,6 +529,84 @@ function App() {
     setMessages([]);
     clearAttachment();
     inputRef.current?.focus();
+  };
+
+  const handleStockFormChange = (field, value) => {
+    setStockForm((prev) => {
+      if (field !== 'query_type') {
+        return { ...prev, [field]: value };
+      }
+      if (value === 'basic') {
+        return {
+          ...prev,
+          query_type: value,
+        };
+      }
+      if (value === 'kdata') {
+        return {
+          ...prev,
+          query_type: value,
+          frequency: prev.frequency || 'd',
+          adjustflag: prev.adjustflag || '3',
+        };
+      }
+      return {
+        ...prev,
+        query_type: value,
+        frequency: ['d', 'w', 'm'].includes(prev.frequency) ? prev.frequency : 'd',
+      };
+    });
+  };
+
+  const handleStockSubmit = async (e) => {
+    e.preventDefault();
+    if (!stockForm.code.trim() || stockLoading) return;
+
+    setStockLoading(true);
+    setStockError('');
+    setStockResult(null);
+
+    try {
+      const basePayload = { code: stockForm.code.trim() };
+      const payloadWithRange = {
+        ...basePayload,
+        ...(stockForm.start_date.trim() ? { start_date: stockForm.start_date.trim() } : {}),
+        ...(stockForm.end_date.trim() ? { end_date: stockForm.end_date.trim() } : {}),
+      };
+
+      let data;
+      if (stockForm.query_type === 'basic') {
+        data = await getStockBasic(basePayload);
+      } else if (stockForm.query_type === 'kdata') {
+        data = await getStockKData({
+          ...payloadWithRange,
+          frequency: stockForm.frequency,
+          adjustflag: stockForm.adjustflag,
+        });
+      } else if (stockForm.query_type === 'index') {
+        data = await getStockIndex({
+          ...payloadWithRange,
+          frequency: stockForm.frequency,
+        });
+      } else {
+        data = await getStockValuation({
+          ...payloadWithRange,
+          frequency: stockForm.frequency,
+        });
+      }
+
+      setStockResult(data);
+    } catch (err) {
+      if (err.response?.status === 401) {
+        setCurrentUser(null);
+        setChatHistory([]);
+        setMessages([]);
+      } else {
+        setStockError(err.response?.data?.detail || '股票查询失败');
+      }
+    } finally {
+      setStockLoading(false);
+    }
   };
 
   const handleSelectChat = (chat) => {
@@ -808,6 +907,156 @@ function App() {
     </section>
   );
 
+  const renderStockQuery = () => {
+    const rows = stockResult?.rows || [];
+    const columns = rows.length ? Object.keys(rows[0]) : [];
+    const visibleRows = rows.slice(0, 120);
+    const needsTruncate = rows.length > visibleRows.length;
+    const isBasic = stockForm.query_type === 'basic';
+    const showAdjust = stockForm.query_type === 'kdata';
+    const frequencyOptions = stockForm.query_type === 'kdata'
+      ? ['d', 'w', 'm', '5', '15', '30', '60']
+      : ['d', 'w', 'm'];
+
+    return (
+      <section className="stocks-shell">
+        <div className="knowledge-toolbar">
+          <div>
+            <p className="recommendation-kicker">Stocks</p>
+            <h3>股票数据查询</h3>
+            <p className="knowledge-copy">复用 BaoStock 数据源，支持基础信息、K 线、指数与估值查询。</p>
+          </div>
+        </div>
+
+        <form className="stocks-form" onSubmit={handleStockSubmit}>
+          <div className="stocks-grid">
+            <label>
+              股票代码
+              <input
+                type="text"
+                value={stockForm.code}
+                onChange={(e) => handleStockFormChange('code', e.target.value)}
+                placeholder="例如 600000 或 sz.000001"
+                disabled={stockLoading}
+              />
+            </label>
+            <label>
+              查询类型
+              <select
+                value={stockForm.query_type}
+                onChange={(e) => handleStockFormChange('query_type', e.target.value)}
+                disabled={stockLoading}
+              >
+                <option value="basic">基础信息</option>
+                <option value="kdata">K 线</option>
+                <option value="index">指数</option>
+                <option value="valuation">估值</option>
+              </select>
+            </label>
+            {!isBasic ? (
+              <>
+                <label>
+                  开始日期
+                  <input
+                    type="date"
+                    value={stockForm.start_date}
+                    onChange={(e) => handleStockFormChange('start_date', e.target.value)}
+                    disabled={stockLoading}
+                  />
+                </label>
+                <label>
+                  结束日期
+                  <input
+                    type="date"
+                    value={stockForm.end_date}
+                    onChange={(e) => handleStockFormChange('end_date', e.target.value)}
+                    disabled={stockLoading}
+                  />
+                </label>
+                <label>
+                  频率
+                  <select
+                    value={stockForm.frequency}
+                    onChange={(e) => handleStockFormChange('frequency', e.target.value)}
+                    disabled={stockLoading}
+                  >
+                    {frequencyOptions.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {showAdjust ? (
+                  <label>
+                    复权
+                    <select
+                      value={stockForm.adjustflag}
+                      onChange={(e) => handleStockFormChange('adjustflag', e.target.value)}
+                      disabled={stockLoading}
+                    >
+                      <option value="1">后复权</option>
+                      <option value="2">前复权</option>
+                      <option value="3">不复权</option>
+                    </select>
+                  </label>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+          <button type="submit" disabled={stockLoading || !stockForm.code.trim()}>
+            {stockLoading ? '查询中...' : '查询'}
+          </button>
+        </form>
+
+        {stockError ? <div className="knowledge-error">{stockError}</div> : null}
+
+        {stockResult ? (
+          <div className="stocks-result">
+            <div className="stocks-meta">
+              <span>类型: {stockResult.query_type}</span>
+              <span>代码: {stockResult.code}</span>
+              <span>总行数: {stockResult.row_count}</span>
+            </div>
+            {stockResult.meta && Object.keys(stockResult.meta).length ? (
+              <pre className="stocks-meta-json">{JSON.stringify(stockResult.meta, null, 2)}</pre>
+            ) : null}
+
+            {visibleRows.length ? (
+              <div className="stocks-table-wrapper">
+                <table className="stocks-table">
+                  <thead>
+                    <tr>
+                      {columns.map((column) => (
+                        <th key={column}>{column}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleRows.map((row, rowIndex) => (
+                      <tr key={`${rowIndex}-${row.code || stockResult.code}`}>
+                        {columns.map((column) => (
+                          <td key={`${rowIndex}-${column}`}>{row[column] ?? ''}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="knowledge-empty">当前查询无数据返回。</div>
+            )}
+            {needsTruncate ? (
+              <p className="stocks-truncate-tip">
+                前端仅展示前 {visibleRows.length} 行，请缩小日期范围以查看更精确结果。
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+    );
+  };
+
   if (sessionLoading) {
     return (
       <div className="auth-shell">
@@ -987,6 +1236,13 @@ function App() {
           >
             Daily Recommendations
           </button>
+          <button
+            className={`sidebar-nav-item ${activeView === 'stocks' ? 'active' : ''}`}
+            onClick={() => setActiveView('stocks')}
+            type="button"
+          >
+            Stocks
+          </button>
         </div>
 
         <div className="chat-history">
@@ -1050,6 +1306,10 @@ function App() {
           {activeView === 'knowledge' ? (
             <div className="dashboard dashboard-recommendations">
               {renderKnowledgeBase()}
+            </div>
+          ) : activeView === 'stocks' ? (
+            <div className="dashboard dashboard-recommendations">
+              {renderStockQuery()}
             </div>
           ) : activeView === 'recommendations' ? (
             <div className="dashboard dashboard-recommendations">

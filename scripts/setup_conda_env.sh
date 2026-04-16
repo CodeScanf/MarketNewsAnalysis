@@ -4,12 +4,41 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/environment.yml"
-ENV_NAME="${1:-market-news-analysis}"
+ENV_NAME="market-news-analysis"
 RECREATE_ENV="${RECREATE_ENV:-0}"
+ENV_NAME_SET=0
 
-if [[ "${2:-}" == "--recreate" ]]; then
-  RECREATE_ENV=1
-fi
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --cpu)
+      ENV_FILE="${ROOT_DIR}/environment.cpu.yml"
+      shift
+      ;;
+    --gpu)
+      ENV_FILE="${ROOT_DIR}/environment.gpu.yml"
+      shift
+      ;;
+    --recreate)
+      RECREATE_ENV=1
+      shift
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      echo "Usage: $0 [env-name] [--cpu|--gpu] [--recreate]" >&2
+      exit 1
+      ;;
+    *)
+      if [[ "${ENV_NAME_SET}" == "1" ]]; then
+        echo "Unexpected extra argument: $1" >&2
+        echo "Usage: $0 [env-name] [--cpu|--gpu] [--recreate]" >&2
+        exit 1
+      fi
+      ENV_NAME="$1"
+      ENV_NAME_SET=1
+      shift
+      ;;
+  esac
+done
 
 if ! command -v conda >/dev/null 2>&1; then
   echo "conda not found in PATH" >&2

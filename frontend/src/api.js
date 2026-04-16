@@ -101,6 +101,26 @@ export const rebuildKnowledgeBase = async () => {
   return response.data;
 };
 
+export const getStockBasic = async (payload) => {
+  const response = await api.post('/stocks/basic', payload);
+  return response.data;
+};
+
+export const getStockKData = async (payload) => {
+  const response = await api.post('/stocks/kdata', payload);
+  return response.data;
+};
+
+export const getStockIndex = async (payload) => {
+  const response = await api.post('/stocks/index', payload);
+  return response.data;
+};
+
+export const getStockValuation = async (payload) => {
+  const response = await api.post('/stocks/valuation', payload);
+  return response.data;
+};
+
 export const getChatHistory = async (limit = 50) => {
   const response = await api.get('/chats', { params: { limit } });
   return response.data;
