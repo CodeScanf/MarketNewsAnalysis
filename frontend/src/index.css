@@ -1157,10 +1157,36 @@ body {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 0.65rem;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text-primary);
   padding: 0.65rem 0.75rem;
   outline: none;
+}
+
+.stocks-grid input:focus,
+.stocks-grid select:focus {
+  border-color: rgba(233, 105, 44, 0.55);
+  box-shadow: 0 0 0 2px rgba(233, 105, 44, 0.2);
+}
+
+.stocks-grid select {
+  appearance: auto;
+  color-scheme: dark;
+}
+
+.stocks-grid select option {
+  background: #f5f7fb;
+  color: #141822;
+}
+
+.stocks-grid input[type='date'] {
+  color-scheme: dark;
+  min-height: 42px;
+}
+
+.stocks-grid input[type='date']::-webkit-calendar-picker-indicator {
+  filter: invert(0.95) brightness(1.1);
+  cursor: pointer;
 }
 
 .stocks-form button {
